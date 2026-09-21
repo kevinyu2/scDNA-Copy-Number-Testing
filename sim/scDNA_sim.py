@@ -86,6 +86,13 @@ parser.add_argument(
     help = "Path to output folder"
 )
 
+parser.add_argument(
+    "--sample-name",
+    type = str,
+    default = '',
+    help = "Name of sample to use in matrices and output file names. If running multiple times, this allows results to be put in the same folders"
+)
+
 
 args = parser.parse_args()
 
@@ -138,7 +145,7 @@ def run_sim(args) :
             true_cn_matrix_mat['copies_final'] = true_cn_matrix_mat['copies']
             true_cn_matrix_pat['copies_final'] = true_cn_matrix_pat['copies']
 
-            fname = f"{args.out}/dwgsim/TEMP.fa"
+            fname = f"{args.out}/dwgsim/{args.sample_name + '_' if args.sample_name else ''}TEMP.fa"
             with open(fname, "w") as f:
 
                 for hap, sequence, matrix, final_list in [('mat', mat, true_cn_matrix_mat, final_mat_gt_cnvs), 
@@ -178,7 +185,7 @@ def run_sim(args) :
                         f"{row.chrom}:{row.start}-{row.end}": row.copies_final
                         for row in matrix.itertuples()
                     }
-                    cell_cn['cell'] = f"cell{cell_count}"
+                    cell_cn['cell'] = f"{args.sample_name + '_' if args.sample_name else ''}cell{cell_count}"
                     final_list.append(cell_cn)
 
                 # Call the DWGSIM simulator 
@@ -200,13 +207,13 @@ def run_sim(args) :
                     "-E", "0",
                     "-r", "0",
                     fname,
-                    f"{args.out}/dwgsim/cell{cell_count}_sim",
+                    f"{args.out}/dwgsim/{args.sample_name + '_' if args.sample_name else ''}cell{cell_count}_sim",
                 ]
                 print("Running:", " ".join(cmd))
 
                 subprocess.run(cmd, check=True)
 
-                # os.remove(fname)
+                os.remove(fname)
 
 
 
@@ -216,8 +223,8 @@ def run_sim(args) :
     final_mat_df = pd.DataFrame(final_mat_gt_cnvs)
     final_pat_df = pd.DataFrame(final_pat_gt_cnvs)
 
-    final_mat_df.to_csv(f"{args.out}/cn_mat/mat.tsv", sep = '\t', index = False)
-    final_pat_df.to_csv(f"{args.out}/cn_mat/pat.tsv", sep = '\t', index = False)
+    final_mat_df.to_csv(f"{args.out}/cn_mat/{args.sample_name + '_' if args.sample_name else ''}mat.tsv", sep = '\t', index = False)
+    final_pat_df.to_csv(f"{args.out}/cn_mat/{args.sample_name + '_' if args.sample_name else ''}pat.tsv", sep = '\t', index = False)
 
 
 def windows_to_wsl(path):
