@@ -183,8 +183,8 @@ def run_sim(args) :
 
                 # Call the DWGSIM simulator 
                 # TODO: format for server
-                fname_wsl = windows_to_wsl(fname)
-                outname_wsl = windows_to_wsl(f"{args.out}/dwgsim/cell{cell_count}_sim")
+                # fname_wsl = windows_to_wsl(fname)
+                # outname_wsl = windows_to_wsl(f"{args.out}/dwgsim/cell{cell_count}_sim")
                 coverage = np.random.lognormal(np.log(args.coverage_mean), args.coverage_var)
                 coverage = max(coverage, 0.001)
 
@@ -199,8 +199,8 @@ def run_sim(args) :
                     "-e", "0",
                     "-E", "0",
                     "-r", "0",
-                    fname_wsl,
-                    outname_wsl,
+                    fname,
+                    f"{args.out}/dwgsim/cell{cell_count}_sim",
                 ]
                 print("Running:", " ".join(cmd))
 
