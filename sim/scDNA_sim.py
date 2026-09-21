@@ -209,29 +209,36 @@ def run_sim(args) :
                     fname,
                     f"{args.out}/dwgsim/{args.sample_name + '_' if args.sample_name else ''}cell{cell_count}_sim",
                 ]
-                print("Running:", " ".join(cmd))
 
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True
-                )
+                
+                print("Starting dwgsim...", flush=True)
+                print("Command:", cmd, flush=True)
 
-                print(f"dwgsim return code: {result.returncode}")
-
-                if result.stdout:
-                    print("dwgsim stdout:")
-                    print(result.stdout)
-
-                if result.stderr:
-                    print("dwgsim stderr:")
-                    print(result.stderr)
-
-                if result.returncode != 0:
-                    raise RuntimeError(
-                        f"dwgsim failed with return code {result.returncode}"
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
                     )
 
+                    # Print dwgsim output as it happens
+                    for line in proc.stdout:
+                        print(f"[dwgsim] {line}", end="", flush=True)
+
+                    returncode = proc.wait()
+
+                    print(f"\ndwgsim return code: {returncode}", flush=True)
+
+                    if returncode != 0:
+                        raise RuntimeError(
+                            f"dwgsim failed with return code {returncode}"
+                        )
+
+                except Exception as e:
+                    print(f"Exception running dwgsim: {e}", flush=True)
+                    raise
 
 
             cell_count += 1
