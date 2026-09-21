@@ -191,8 +191,7 @@ def run_sim(args) :
 
 
                 cmd = [
-                    "wsl",
-                    "/home/kmyut/miniconda3/envs/dwgsim/bin/dwgsim",
+                    "dwgsim",
                     "-H",
                     "-C", str(coverage),
                     "-1", "100",
