@@ -211,9 +211,26 @@ def run_sim(args) :
                 ]
                 print("Running:", " ".join(cmd))
 
-                subprocess.run(cmd, check=True)
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True
+                )
 
-                os.remove(fname)
+                print(f"dwgsim return code: {result.returncode}")
+
+                if result.stdout:
+                    print("dwgsim stdout:")
+                    print(result.stdout)
+
+                if result.stderr:
+                    print("dwgsim stderr:")
+                    print(result.stderr)
+
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"dwgsim failed with return code {result.returncode}"
+                    )
 
 
 
