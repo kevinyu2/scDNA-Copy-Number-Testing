@@ -128,12 +128,16 @@ def run_sim(args) :
 
         no_cells = cnv_set['leaves']
 
+        mat = mat_genome.sequences()
+        pat = pat_genome.sequences()
+        true_cn_matrix_mat = mat_genome.copy_number_matrix()
+        true_cn_matrix_pat = pat_genome.copy_number_matrix()
+
         # Create a fasta for EACH cell
         for i in range(no_cells) :
-            mat = mat_genome.sequences()
-            pat = pat_genome.sequences()
-            true_cn_matrix_mat = mat_genome.copy_number_matrix()
-            true_cn_matrix_pat = pat_genome.copy_number_matrix()
+            true_cn_matrix_mat['copies_final'] = true_cn_matrix_mat['copies']
+            true_cn_matrix_pat['copies_final'] = true_cn_matrix_pat['copies']
+
             fname = f"{args.out}/dwgsim/TEMP.fa"
             with open(fname, "w") as f:
 
@@ -159,9 +163,8 @@ def run_sim(args) :
                                 for seq_no, seq in enumerate(seq_after_ado) :
                                     f.write(f">{hap}_{chrom.split('____')[0]}_{seq_no}\n")
                                     f.write(f"{seq}\n")
-
                             # Add counts to copy number matrix
-                            matrix['copies'] = matrix['copies'] + matrix[chrom] * ecDNA_count
+                            matrix['copies_final'] = matrix['copies_final'] + matrix[chrom] * ecDNA_count
 
                         else :
                             
@@ -169,6 +172,14 @@ def run_sim(args) :
                             for seq_no, seq in enumerate(seq_after_ado) :
                                 f.write(f">{hap}_{chrom}_{seq_no}\n")
                                 f.write(f"{seq}\n")
+
+                    # Add to the gt matrix
+                    cell_cn = {
+                        f"{row.chrom}:{row.start}-{row.end}": row.copies_final
+                        for row in matrix.itertuples()
+                    }
+                    cell_cn['cell'] = f"cell{cell_count}"
+                    final_list.append(cell_cn)
 
                 # Call the DWGSIM simulator 
                 # TODO: format for server
@@ -198,14 +209,6 @@ def run_sim(args) :
 
                 # os.remove(fname)
 
-
-                # Add to the gt matrix
-                cell_cn = {
-                    f"{row.chrom}:{row.start}-{row.end}": row.copies
-                    for row in matrix.itertuples()
-                }
-                cell_cn['cell'] = f"cell{cell_count}"
-                final_list.append(cell_cn)
 
 
             cell_count += 1

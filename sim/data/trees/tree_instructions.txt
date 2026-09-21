@@ -1,0 +1,19 @@
+A line like:
+((50[1,2],40),(20,60)[2,2])
+Means a tree with leaves 50, 40, 20, 60
+And use the first and second listed CNV on the branch of the leaf with 50
+Second CNV TWICE on the branch splitting 20 and 60 from 50 and 40
+
+Afterwards, list the CNVs one line at a time in the following format:
+id	type	hap	vec	loc
+
+id - what to put on the tree line
+type - DEL, AMP, or ecDNA
+hap - M (maternal), P (paternal), or B (both)
+vec - if ecDNA, put the path to the vector here
+loc - chr_:[start]-[end] (inclusive) (can be a comma separated list, no spaces)
+
+Order of events happens from top to bottom, left to right. Each amplification
+gets added to the END of the amplification location. If two overlap, the second
+one keeps track of ORIGINAL coordinates, but will amplify any edits made to
+that section. ecDNA also takes from the original coordinates and keeps amplifications.

@@ -1,0 +1,3 @@
+(50[1],40)
+id	type	hap	vec	loc
+1	DEL	M		chr1:3-4

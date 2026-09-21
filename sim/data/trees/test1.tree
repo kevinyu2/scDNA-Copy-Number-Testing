@@ -1,0 +1,8 @@
+((5[5,1,2],4)[3],(2,6)[2,2])
+id	type	hap	vec	loc
+1	DEL	P		chr1:3-4
+2	AMP	M		chr1:3-9
+3	AMP	M		chr1:4-6
+4	AMP	M		chr2:6-8
+5	ecDNA	M	./data/ecDNA_vectors/sim_ecDNA_20.tsv	chr1:5-10,chr1:13-20
+6	WGD	D		
