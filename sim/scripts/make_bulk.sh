@@ -6,7 +6,7 @@
 #SBATCH --error=logs/bulk_scDNA_sim_%j.err
 
 # Initialize conda
-source "${SCRIPT_DIR}/../config.sh"
+source "./config.sh"
 
 
 source ${CONDA}
