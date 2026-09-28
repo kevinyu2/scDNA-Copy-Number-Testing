@@ -9,6 +9,7 @@ import random
 import subprocess
 from pathlib import Path
 from bisect import bisect_right
+import subprocess
 
 
 """
@@ -210,35 +211,29 @@ def run_sim(args) :
                     f"{args.out}/dwgsim/{args.sample_name + '_' if args.sample_name else ''}cell{cell_count}_sim",
                 ]
 
-                
+
                 print("Starting dwgsim...", flush=True)
                 print("Command:", cmd, flush=True)
+                print("Starting DWGSIM...", flush=True)
 
-                try:
-                    proc = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
-                    )
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
 
-                    # Print dwgsim output as it happens
-                    for line in proc.stdout:
-                        print(f"[dwgsim] {line}", end="", flush=True)
+                for line in proc.stdout:
+                    print(f"[DWGSIM] {line}", end="", flush=True)
 
-                    returncode = proc.wait()
+                returncode = proc.wait()
 
-                    print(f"\ndwgsim return code: {returncode}", flush=True)
+                print(f"DWGSIM finished: {returncode}", flush=True)
 
-                    if returncode != 0:
-                        raise RuntimeError(
-                            f"dwgsim failed with return code {returncode}"
-                        )
+                if returncode != 0:
+                    raise RuntimeError(f"DWGSIM failed with return code {returncode}")
 
-                except Exception as e:
-                    print(f"Exception running dwgsim: {e}", flush=True)
-                    raise
 
 
             cell_count += 1
