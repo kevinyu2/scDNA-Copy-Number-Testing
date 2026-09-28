@@ -19,7 +19,7 @@ set -euo pipefail
 # Sample name comes from the SLURM array
 SAMPLE_NAME="batch${SLURM_ARRAY_TASK_ID}"
 
-python "../scDNA_sim.py" \
+python "./scDNA_sim.py" \
     --mat "${SIM_FA_FOLDER}/mat.fa" \
     --pat "${SIM_FA_FOLDER}/pat.fa" \
     --cnv "${TREE_FILE}" \
