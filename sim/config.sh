@@ -3,7 +3,8 @@
 # config.sh
 
 PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/proj_1"
-CONDA_ENV="scdna_pipeline"
+CONDA=/n/fs/ragr-research/users/ky8418/miniconda3/etc/profile.d/conda.sh
+ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/scdna_pipeline"
 
 # Simulator
 NUM_BATCHES=20

@@ -6,12 +6,14 @@
 #SBATCH --error=logs/bulk_scDNA_sim_%j.err
 
 # Initialize conda
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate scdna_pipeline
+source ../config.sh
+
+
+source ${CONDA}
+conda activate ${ENV}
 
 set -euo pipefail
 
-source ../config.sh
 
 
 

@@ -6,12 +6,15 @@
 #SBATCH --error=logs/scDNA_sim_%A_%a.err
 
 # Initialize conda
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate scdna_pipeline
+
+source ../config.sh
+
+
+source ${CONDA}
+conda activate ${ENV}
 
 set -euo pipefail
 
-source ../config.sh
 
 # Sample name comes from the SLURM array
 SAMPLE_NAME="batch${SLURM_ARRAY_TASK_ID}"

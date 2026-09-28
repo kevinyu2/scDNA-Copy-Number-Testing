@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=scDNA_pipeline
 #SBATCH --mem=32G
-#SBATCH --time=2:00:00:00
+#SBATCH --time=72:00:00
 #SBATCH --output=logs/scDNA_full_%j.out
 #SBATCH --error=logs/scDNA_full_%j.err
 
@@ -59,10 +59,14 @@ source "./config.sh"
 # Conda
 # ============================================================
 
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "${CONDA_ENV}"
+source ../config.sh
+
+
+source ${CONDA}
+conda activate ${ENV}
 
 set -euo pipefail
+
 
 
 # ============================================================
