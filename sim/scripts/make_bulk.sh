@@ -16,9 +16,6 @@ set -euo pipefail
 
 
 
-
-FULL_REF="${SIM_FA_FOLDER}/full.fa"
-
 BULK_DIR="${PROJECT_DIR}/sim/bulk"
 BULK_FASTQ_DIR="${BULK_DIR}/fastq"
 
@@ -28,20 +25,20 @@ mkdir -p "${BULK_FASTQ_DIR}"
 # Make combined maternal + paternal reference if needed
 # ============================================================
 
-if [[ ! -f "${FULL_REF}" ]]; then
+if [[ ! -f "${SIM_FULL_FA}" ]]; then
 
     echo "Creating combined maternal/paternal reference:"
-    echo "${FULL_REF}"
+    echo "${SIM_FULL_FA}"
 
     cat \
-        "${SIM_FA_FOLDER}/mat.fa" \
-        "${SIM_FA_FOLDER}/pat.fa" \
-        > "${FULL_REF}"
+        "${SIM_MAT_FA}" \
+        "${SIM_PAT_FA}" \
+        > "${SIM_FULL_FA}"
 
 else
 
     echo "Combined reference already exists:"
-    echo "${FULL_REF}"
+    echo "${SIM_FULL_FA}"
 
 fi
 
@@ -59,7 +56,7 @@ dwgsim \
     -e 0 \
     -E 0 \
     -r 0 \
-    "${FULL_REF}" \
+    "${SIM_FULL_FA}" \
     "${BULK_FASTQ_DIR}/bulk"
 
 echo "Bulk DWGSIM finished."
@@ -82,7 +79,7 @@ BULK_BAM="${BULK_BAM_DIR}/bulk.bam"
 echo "Aligning bulk reads..."
 
 bwa mem \
-    "${FULL_REF}" \
+    "${REF}" \
     "${BULK_READ1}" \
     "${BULK_READ2}" \
     | samtools sort \

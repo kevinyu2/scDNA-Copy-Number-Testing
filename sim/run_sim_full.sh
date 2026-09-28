@@ -82,7 +82,6 @@ if (( START_STAGE <= 1 && STOP_STAGE >= 1 )); then
     echo "Submitted simulation array: ${SIM_JOB}"
 
     BULK_JOB=$(sbatch --parsable \
-        --dependency=afterok:${SIM_JOB} \
         "${SCRIPT_DIR}/make_bulk.sh")
 
     echo "Submitted bulk job: ${BULK_JOB}"

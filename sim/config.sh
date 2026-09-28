@@ -8,8 +8,11 @@ ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/scdna_pipeline"
 
 # Simulator
 NUM_BATCHES=20
-SIM_FA_FOLDER="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/test_genomes"
-TREE_FILE="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/trees/tree1.tree"
+SIM_MAT_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/test_genomes/mat.fasta"
+SIM_PAT_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/test_genomes/pat.fasta"
+# This one gets created automatically if not present
+SIM_FULL_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/test_genomes/full.fasta"
+
 
 # Simulation parameters
 ADO_FREQ=0.00001
