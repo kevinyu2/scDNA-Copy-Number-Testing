@@ -59,30 +59,11 @@ source "./config.sh"
 # Conda
 # ============================================================
 
-source ../config.sh
-
-
 source ${CONDA}
 conda activate ${ENV}
 
 set -euo pipefail
 
-
-
-# ============================================================
-# Sample
-# ============================================================
-
-SAMPLE_NAME="batch${SLURM_ARRAY_TASK_ID}"
-
-export SAMPLE_NAME
-
-echo "============================================================"
-echo "scDNA pipeline"
-echo "Sample: ${SAMPLE_NAME}"
-echo "Stages: ${START_STAGE} → ${STOP_STAGE}"
-echo "Output: ${OUTPUT_DIR}"
-echo "============================================================"
 
 # ============================================================
 # Stage 1
