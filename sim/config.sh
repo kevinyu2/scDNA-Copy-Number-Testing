@@ -9,7 +9,7 @@ ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/scdna_pipeline"
 # Simulator
 NUM_BATCHES=20
 SIM_FA_FOLDER="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/"
-TREE_FILE="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/trees/mat_COLO.tree"
+TREE_FILE="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/trees/tree1.tree"
 
 # Simulation parameters
 ADO_FREQ=0.00001

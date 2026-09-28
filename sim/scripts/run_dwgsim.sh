@@ -7,7 +7,7 @@
 
 # Initialize conda
 
-source ../config.sh
+source "${SCRIPT_DIR}/../config.sh"
 
 
 source ${CONDA}
