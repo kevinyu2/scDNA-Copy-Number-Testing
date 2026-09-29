@@ -98,7 +98,7 @@ if (( START_STAGE <= 2 && STOP_STAGE >= 2 )); then
     echo "STAGE 2: SCAN2"
     echo "============================================================"
 
-    bash "${SCRIPT_DIR}/02_scan2.sh"
+    bash "${SCRIPT_DIR}/scan2_run.sh"
 fi
 
 # # ============================================================

@@ -26,6 +26,8 @@ COVERAGE_VAR=0.3
 REF="/n/fs/ragr-data/users/ky8418/scDNA_sim/sim_resources/hg38/Homo_sapiens_assembly38.fasta"
 
 
-# Downstream tools — we'll fill these in later
-SCAN2_DIR=""
-HISCANNER_DIR=""
+# Resources for scan2 and hiscanner
+RESOURCES_DIR=/n/fs/ragr-data/users/ky8418/scDNA_sim/sim_resources/
+WINDOWS_BED="/n/fs/ragr-data/users/ky8418/scDNA_sim/sim_resources/chr1_2000windows.bed"
+GENOME="hg38"
+CHR="chr1"
