@@ -64,58 +64,31 @@ conda activate ${ENV}
 
 set -euo pipefail
 
+# Dependency flags for the next stage (empty unless an earlier stage ran in this invocation)
+DEP_ARGS=()
 
-# ============================================================
-# Stage 1
-# ============================================================
-
+# ---------------- Stage 1 ----------------
 if (( START_STAGE <= 1 && STOP_STAGE >= 1 )); then
-    echo
-    echo "============================================================"
-    echo "STAGE 1: Simulation + FASTQ → BAM + Bulk"
-    echo "============================================================"
+    SIM_JOB=$(sbatch --parsable --array=1-"${NUM_BATCHES}" "${SCRIPT_DIR}/run_dwgsim.sh")
+    BULK_JOB=$(sbatch --parsable "${SCRIPT_DIR}/make_bulk.sh")
+    echo "Submitted simulation array: ${SIM_JOB}, bulk: ${BULK_JOB}"
 
-    SIM_JOB=$(sbatch --parsable \
-        --array=1-"${NUM_BATCHES}" \
-        "${SCRIPT_DIR}/run_dwgsim.sh")
-
-    echo "Submitted simulation array: ${SIM_JOB}"
-
-    BULK_JOB=$(sbatch --parsable \
-        "${SCRIPT_DIR}/make_bulk.sh")
-
-    echo "Submitted bulk job: ${BULK_JOB}"
+    # afterok on an array job ID waits for ALL its tasks
+    DEP_ARGS=(--dependency=afterok:${SIM_JOB}:${BULK_JOB} --kill-on-invalid-dep=yes)
 fi
 
-
-# # ============================================================
-# # Stage 2
-# # ============================================================
-
+# ---------------- Stage 2 ----------------
 if (( START_STAGE <= 2 && STOP_STAGE >= 2 )); then
-    echo
-    echo "============================================================"
-    echo "STAGE 2: SCAN2"
-    echo "============================================================"
+    S2_JOB=$(sbatch --parsable ${DEP_ARGS[@]+"${DEP_ARGS[@]}"} \
+        --job-name=scan2 --mem=8G --time=72:00:00 \
+        --output=logs/scan2_%j.out --error=logs/scan2_%j.err \
+        "${SCRIPT_DIR}/scan2_run.sh")
+    echo "Submitted SCAN2: ${S2_JOB}"
 
-    bash "${SCRIPT_DIR}/scan2_run.sh"
+    DEP_ARGS=(--dependency=afterok:${S2_JOB} --kill-on-invalid-dep=yes)
 fi
 
-# # ============================================================
-# # Stage 3
-# # ============================================================
-
+# ---------------- Stage 3 (same pattern) ----------------
 # if (( START_STAGE <= 3 && STOP_STAGE >= 3 )); then
-#     echo
-#     echo "============================================================"
-#     echo "STAGE 3: HiScanner"
-#     echo "============================================================"
-
-#     bash "${SCRIPT_DIR}/03_hiscanner.sh"
+#     sbatch --parsable ${DEP_ARGS[@]+"${DEP_ARGS[@]}"} "${SCRIPT_DIR}/03_hiscanner.sh"
 # fi
-
-# echo
-# echo "============================================================"
-# echo "Pipeline finished"
-# echo "Sample: ${SAMPLE_NAME}"
-# echo "============================================================"

@@ -14,6 +14,34 @@ conda activate ${ENV}
 
 set -euo pipefail
 
+################################################
+# Fix RG mistake
+
+THREADS=${THREADS:-4}
+
+add_rg() {
+  bam=$1; thr=$2
+  s=$(basename "$bam" .bam)                       # sample name = filename stem
+  [[ $s == bulk ]] && s=bulk
+  if [[ $(samtools view -H "$bam" | grep -c '^@RG') -gt 0 ]]; then
+    echo "skip (has RG): $bam"; return
+  fi
+  tmp=$bam.rg.tmp.bam
+  samtools addreplacerg -@ "$thr" \
+    -r "@RG\tID:$s\tSM:$s\tLB:$s\tPL:ILLUMINA" \
+    -o "$tmp" "$bam"
+  samtools quickcheck "$tmp"
+  mv "$tmp" "$bam"
+  samtools index -@ "$thr" "$bam"
+  echo "done: $bam"
+}
+export -f add_rg
+
+{ find "$PROJECT_DIR/sim/bams" -maxdepth 1 -name '*.bam'
+  echo "$PROJECT_DIR/sim/bulk/bams/bulk.bam"; } \
+  | xargs -P 8 -I{} bash -c 'add_rg {} 2'
+
+###################################################
 
 
 scan2 -d "${PROJECT_DIR}/scan2_out" init
@@ -30,7 +58,7 @@ EAGLE_GENMAP=$RES/genetic_map_hg38_withX.txt.gz
 EAGLE_PANEL_DIR=$RES/eagle_1000g_panel
 SCAN2_LIB=$ENV/lib/scan2
 
-OUT_DIR=$PROJECT_DIR/scan2
+OUT_DIR=$PROJECT_DIR/scan2_out
 OUT=$OUT_DIR/scan.yaml
 
 # ---- checks ----
@@ -162,6 +190,10 @@ EOF
 mv "$TMP" "$OUT"
 trap - EXIT
 echo "Wrote $OUT: ${#SAMPLES[@]} cells, $(grep -c '^- chr[0-9X]*:' "$OUT") regions"
+
+
+cd "$PROJECT_DIR/scan2_out"
+mkdir -p logs
 
 
 scan2 run \
