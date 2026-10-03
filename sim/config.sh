@@ -95,6 +95,7 @@ UGP_CHROMS="1"             # UGP wants bare numbers; it handles the chr prefix i
 UGP_SNP_PANEL="${RESOURCES_DIR%/}/1kGP.chr1.snps.vcf.gz"
 UGP_PHASING_PANEL="${RESOURCES_DIR%/}/ugp_phasing_panel"
 UGP_GTF="${RESOURCES_DIR%/}/gencode.v38.annotation.gtf.gz"
+EAGLE_GENMAP="${RESOURCES_DIR%/}/genetic_map_hg38_withX.txt.gz"
 
 # Binning (percell). UGP's docs suggest 50–200 for low coverage.
 UGP_MIN_SNP_READS="[50, 100, 200]"
