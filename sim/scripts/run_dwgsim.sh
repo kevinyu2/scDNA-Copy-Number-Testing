@@ -43,6 +43,8 @@ for READ1 in "${PROJECT_DIR}/sim/dwgsim/${SAMPLE_NAME}"*_sim.bwa.read1.fastq.gz;
 
     
     bwa mem \
+        -t 16 \
+        -R "@RG\tID:bulk\tSM:bulk\tLB:bulk\tPL:ILLUMINA"  \
         "${REF}" \
         "${READ1}" \
         "${READ2}" \

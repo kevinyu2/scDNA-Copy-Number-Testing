@@ -201,7 +201,7 @@ def run_sim(args) :
                 cmd = [
                     "dwgsim",
                     "-H",
-                    "-C", str(coverage),
+                    "-C", str(coverage/2),
                     "-1", "100",
                     "-2", "100",
                     "-e", "0",
