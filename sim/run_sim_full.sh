@@ -64,6 +64,8 @@ conda activate ${ENV}
 
 set -euo pipefail
 
+mkdir -p logs
+
 # Dependency flags for the next stage (empty unless an earlier stage ran in this invocation)
 DEP_ARGS=()
 
