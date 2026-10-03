@@ -83,7 +83,7 @@ HS_RERUN=false                      # true = redo steps even if outputs exist
 # Universal Genotyping Pipeline
 # ============================================================
 UGP_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/genotyping-env"
-UGP_REPO="/path/to/Universal-Genotyping-Pipeline"
+UGP_REPO="/n/fs/ragr-research/users/ky8418/Universal-Genotyping-Pipeline"
 UGP_CONDA_PREFIX="/n/fs/ragr-data/users/ky8418/scDNA_sim/ugp_conda"   # same as in step 1
 UGP_DIR="${PROJECT_DIR}/ugp"
 UGP_SAMPLE_ID="HG002sim"
