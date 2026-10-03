@@ -44,20 +44,24 @@ export -f add_rg
 ###################################################
 
 
-scan2 -d "${PROJECT_DIR}/scan2_out" init
-
 
 
 OUT_DIR=$PROJECT_DIR/scan2_out
 scan2 -d "$OUT_DIR" init
 cd "$OUT_DIR"
 
+RES=${RESOURCES_DIR%/}
+BAM_DIR=$PROJECT_DIR/sim/bams
+BULK_BAM=$PROJECT_DIR/sim/bulk/bams/bulk.bam
+DBSNP=$RES/common_all_20180418.chrprefix.vcf
+EAGLE_GENMAP=$RES/genetic_map_hg38_withX.txt.gz
+EAGLE_PANEL_DIR=$RES/eagle_1000g_panel
+
 SC_ARGS=()
 for b in "$BAM_DIR"/*.bam; do SC_ARGS+=(--sc-bam "$b"); done
 
 scan2 config \
   --verbose \
-  --sex male \
   --analysis call_mutations \
   --gatk gatk3_joint \
   --ref "$REF" \
@@ -76,5 +80,28 @@ mkdir -p logs
 scan2 run \
   --joblimit 5000 \
   --cluster "sbatch --partition=mit_normal --cpus-per-task={threads} --mem={resources.mem_mb}M --time=72:00:00 --output=logs/%j.out" \
-  --snakemake-args ' --until eagle_scatter --latency-wait 120'
+  --snakemake-args ' --until phasing_gather --latency-wait 120'
 
+
+
+# ---- Prepare SCAN2 output for HiScanner ----
+cd "$OUT_DIR"
+
+# Compressed copy of the raw calls; the original .vcf stays for Snakemake
+if [[ ! -f gatk/hc_raw.mmq60.vcf.gz ]]; then
+  bgzip -c gatk/hc_raw.mmq60.vcf > gatk/hc_raw.mmq60.vcf.gz
+fi
+tabix -f -p vcf gatk/hc_raw.mmq60.vcf.gz
+
+# HiScanner expects shapeit/; point it at the Eagle results
+if [[ -d shapeit && ! -L shapeit ]]; then
+  # a real shapeit/ dir exists: link the files individually
+  ln -sf ../eagle/phased_hets.vcf.gz     shapeit/phased_hets.vcf.gz
+  ln -sf ../eagle/phased_hets.vcf.gz.tbi shapeit/phased_hets.vcf.gz.tbi
+else
+  ln -sfn eagle shapeit
+fi
+
+# silences HiScanner's missing-md5 warnings
+md5sum gatk/hc_raw.mmq60.vcf.gz    > gatk/hc_raw.mmq60.vcf.gz.md5
+md5sum eagle/phased_hets.vcf.gz    > eagle/phased_hets.vcf.gz.md5

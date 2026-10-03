@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=scDNA_sim
 #SBATCH --mem=32G
+#SBATCH --cpus-per-task=16
 #SBATCH --time=08:00:00
 #SBATCH --output=logs/scDNA_sim_%A_%a.out
 #SBATCH --error=logs/scDNA_sim_%A_%a.err
@@ -44,7 +45,7 @@ for READ1 in "${PROJECT_DIR}/sim/dwgsim/${SAMPLE_NAME}"*_sim.bwa.read1.fastq.gz;
     
     bwa mem \
         -t 16 \
-        -R "@RG\tID:bulk\tSM:bulk\tLB:bulk\tPL:ILLUMINA"  \
+        -R "@RG\tID:${CELL_NAME}\tSM:${CELL_NAME}\tLB:${CELL_NAME}\tPL:ILLUMINA" \        
         "${REF}" \
         "${READ1}" \
         "${READ2}" \

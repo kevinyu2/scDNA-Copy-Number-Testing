@@ -31,10 +31,7 @@ if [[ ! -f "${SIM_FULL_FA}" ]]; then
     echo "Creating combined maternal/paternal reference:"
     echo "${SIM_FULL_FA}"
 
-    cat \
-        "${SIM_MAT_FA}" \
-        "${SIM_PAT_FA}" \
-        > "${SIM_FULL_FA}"
+    cat <(sed 's/^>/>mat_/' "${SIM_MAT_FA}") <(sed 's/^>/>pat_/' "${SIM_PAT_FA}") > "${SIM_FULL_FA}"
 
 else
 
@@ -70,14 +67,6 @@ BULK_READ2="${BULK_FASTQ_DIR}/bulk.bwa.read2.fastq.gz"
 BULK_BAM="${BULK_BAM_DIR}/bulk.bam"
 
 echo "Aligning bulk reads..."
-
-bwa mem \
-    "${REF}" \
-    "${BULK_READ1}" \
-    "${BULK_READ2}" \
-    | samtools sort \
-        -o "${BULK_BAM}" \
-        -
 
 bwa mem -t 16 -R "@RG\tID:bulk\tSM:bulk\tLB:bulk\tPL:ILLUMINA" "${REF}" "${BULK_READ1}" "${BULK_READ2}" \
   | samtools sort -@ 4 -m 2G -o "${BULK_BAM}" -
