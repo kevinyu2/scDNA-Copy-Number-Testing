@@ -35,7 +35,7 @@ python "./scDNA_sim.py" \
 mkdir -p "${PROJECT_DIR}/sim/bams"
 
 # Now find this batch's FASTQs and make BAMs
-for READ1 in "${PROJECT_DIR}/sim/dwgsim/${SAMPLE_NAME}_"*_sim.bwa.read1.fastq.gz
+for READ1 in "${PROJECT_DIR}/sim/dwgsim/${SAMPLE_NAME}_"*_sim.bwa.read1.fastq.gz; do
     READ2="${READ1/.bwa.read1.fastq.gz/.bwa.read2.fastq.gz}"
 
     CELL_NAME="$(basename "${READ1}" .bwa.read1.fastq.gz)"
