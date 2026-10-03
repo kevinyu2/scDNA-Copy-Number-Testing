@@ -74,6 +74,17 @@ scan2 config \
   --bulk-bam "$BULK_BAM" \
   "${SC_ARGS[@]}"
 
+# This install's Snakefiles read keys its `scan2 config` doesn't write
+add_key() {
+  grep -q "^$1:" scan.yaml || { echo "$1: $2" >> scan.yaml; echo "added to scan.yaml -> $1: $2"; }
+}
+add_key phased_hsnps "''"          # needed: read when the workflow loads
+add_key phased_hsnps_n_cores 20    # needed: read when the workflow loads
+add_key fdr 0.01                   # old name for target_fdr
+add_key min_bulk_dp 11             # old name for snv_min_bulk_dp
+add_key min_sc_alt 2               # old name for snv_min_sc_alt
+add_key min_sc_dp 6                # old name for snv_min_sc_dp
+
 scan2 validate
 
 mkdir -p logs
