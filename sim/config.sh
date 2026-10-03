@@ -2,7 +2,7 @@
 
 # config.sh
 
-PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/proj_COLO_mat"
+PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/proj_COLO_mat_final"
 CONDA=/n/fs/ragr-research/users/ky8418/miniconda3/etc/profile.d/conda.sh
 ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/scdna_pipeline"
 
@@ -11,7 +11,7 @@ NUM_BATCHES=20
 SIM_MAT_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/hg002/HG002_mat_chr1.fasta"
 SIM_PAT_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/hg002/HG002_pat_chr1.fasta"
 # This one gets created automatically if not present
-SIM_FULL_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/test_genomes/HG002_full_chr1.fasta"
+SIM_FULL_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/hg002/HG002_full_chr1.fasta"
 TREE_FILE="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/trees/mat_COLO2.tree"
 
 # Simulation parameters

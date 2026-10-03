@@ -198,5 +198,5 @@ mkdir -p logs
 
 scan2 run \
   --joblimit 5000 \
-  --cluster "sbatch --partition=mit_normal --cpus-per-task={threads} --mem={resources.mem_mb}M --time=72:00:00 --output=%logdir/%j.out" \
+  --cluster "sbatch --partition=mit_normal --cpus-per-task={threads} --mem={resources.mem_mb}M --time=72:00:00 --output=logs/%j.out" \
   --snakemake-args ' --until eagle_scatter --latency-wait 120'
