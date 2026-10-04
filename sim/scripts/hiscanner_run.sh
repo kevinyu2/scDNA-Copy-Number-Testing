@@ -49,9 +49,11 @@ for c in ${HS_CHROMS}; do
     [[ -f "${MAPPABILITY_STEM}${c}.txt" ]]   || die "missing mappability file ${MAPPABILITY_STEM}${c}.txt (check MAPPABILITY_STEM)"
 done
 
-zcat "${SCAN2_OUT}/shapeit/phased_hets.vcf.gz" | grep -m1 '^#CHROM' | grep -q 'phasedgt$' \
-    || die "phased_hets.vcf.gz last column is not named phasedgt"
+LAST_SAMPLE=$(bcftools query -l "${SCAN2_OUT}/shapeit/phased_hets.vcf.gz" | tail -n 1)
+[[ ${LAST_SAMPLE} == phasedgt ]] \
+    || die "phased_hets.vcf.gz sample column is '${LAST_SAMPLE}', not phasedgt"
 
+    
 if [[ ${HS_USE_CLUSTER} == true && -z ${SLURM_ACCOUNT} ]]; then
     die "HS_USE_CLUSTER=true but SLURM_ACCOUNT is empty (HiScanner always passes --account to sbatch)"
 fi
