@@ -166,10 +166,10 @@ params_combine_counts:
   gene_aware_binning: ${UGP_GENE_AWARE_BINNING}
 
 threads:
-  genotype: ${UGP_THREADS_STEP}
-  phase: ${UGP_THREADS_STEP}
-  pileup: ${UGP_THREADS_STEP}
-  mosdepth: ${UGP_THREADS_STEP}
+  genotype: ${UGP_THREADS_GENOTYPE}
+  phase: ${UGP_THREADS_PHASE}
+  pileup: ${UGP_THREADS_PILEUP}
+  mosdepth: ${UGP_THREADS_MOSDEPTH}
 EOF
 
 # ============================================================
@@ -185,7 +185,8 @@ SMK_ARGS=(
     --configfile "${UGP_DIR}/config.yaml"
     --directory "${UGP_DIR}/out"
     --config sample_file="${SAMPLES_JSON}" sample_id="${UGP_SAMPLE_ID}"
-    --cores "${UGP_CORES}"
+    --executor slurm --jobs 100
+    --default-resources slurm_partition="${SLURM_PARTITION}" slurm_account="${SLURM_ACCOUNT}" mem_mb=8000 runtime=240
     --conda-prefix "${UGP_CONDA_PREFIX}"
     --rerun-incomplete
 )

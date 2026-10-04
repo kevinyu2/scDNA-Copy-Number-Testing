@@ -1,6 +1,6 @@
 ## Pipeline for testing simulated chr1 reads for CHISEL, HiScanner, etc
 
-Make one conda env for hiscanner, scan2, dwgsim. CHISEL requires another conda env since the python version is different.
+Make one conda env for hiscanner, scan2, dwgsim. CHISEL requires another conda env since the python version is different.s
 
 
 Small bug fix for SCAN2: replace the existing ```$ENV/lib/scan2/snakefile.phasing``` file with the ```snakefile.phasing``` file in this dir

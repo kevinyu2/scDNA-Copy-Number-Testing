@@ -107,8 +107,10 @@ UGP_GENE_AWARE_BINNING=true          # never cut inside a gene (UGP default: tru
 
 
 UGP_CORES=16
-UGP_THREADS_STEP=4
-
+UGP_THREADS_GENOTYPE=1     # bcftools mpileup is single-threaded; more doesn't help
+UGP_THREADS_PHASE=16       # Eagle uses all of these
+UGP_THREADS_PILEUP=1       # per-cell jobs (percell mode): 1 each lets 16 cells run at once
+UGP_THREADS_MOSDEPTH=1
 
 # ============================================================
 # CHISEL
