@@ -108,3 +108,14 @@ UGP_GENE_AWARE_BINNING=true          # never cut inside a gene (UGP default: tru
 
 UGP_CORES=16
 UGP_THREADS_STEP=4
+
+
+# ============================================================
+# CHISEL
+# ============================================================
+CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/chisel"
+CHISEL_DIR="${PROJECT_DIR}/chisel"
+CHISEL_SEED=12
+CHISEL_JOBS=16
+CHISEL_BARCODE_LENGTH=12
+CHISEL_PREP_FORCE=false     # true = rebuild barcodedcells.bam even if it exists
