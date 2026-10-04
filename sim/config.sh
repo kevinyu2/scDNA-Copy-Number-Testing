@@ -121,3 +121,17 @@ CHISEL_SEED=12
 CHISEL_JOBS=16
 CHISEL_BARCODE_LENGTH=12
 CHISEL_PREP_FORCE=false     # true = rebuild barcodedcells.bam even if it exists
+
+
+
+# ============================================================
+# Evaluation
+# ============================================================
+EVAL_ENV="${ENV}"
+EVAL_DIR="${PROJECT_DIR}/eval"
+EVAL_LIFT_DIR="${RESOURCES_DIR%/}/liftover"   # haplotype->hg38 alignments, shared across projects
+EVAL_PURITY=0.9           # min fraction of a bin in one true segment to score it
+EVAL_ORIENTATION=global   # global | cell
+EVAL_CELLS_PER_PAGE=4
+EVAL_MAX_CELLS_PLOT=0     # 0 = plot every cell
+EVAL_MAX_CN=8             # confusion-matrix axis cap; higher values lumped into "8+"

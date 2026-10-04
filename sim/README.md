@@ -10,6 +10,6 @@ Small bug fix for SCAN2: replace the existing ```$ENV/lib/scan2/snakefile.phasin
 ```run_full_sim.sh```: the pipeline from simulation (step 1) to scan2 (step 2) to hiscanner (step3)
 Run this with a start and end (```sbatch run_full_sim.sh [START] [END]```, i.e. ```sbatch run_full_sim.sh 1 2```),
 
-```./scripts/ugp_run.sh```: runs Universal Genotyper (replacing step 2)
+```./ugp_run.sh```: runs Universal Genotyper (replacing step 2)
 
-```./scripts/chisel_prep_run.sh```: preps BAMs for CHISEL
+```./chisel_prep_run.sh```: preps BAMs for CHISEL
