@@ -50,9 +50,7 @@ HS_DIR="${PROJECT_DIR}/hiscanner"                 # project dir: config.yaml, me
 
 # Reference files
 FASTA_SPLIT_DIR="${RESOURCES_DIR%/}/hg38_split"   # must contain <chrom>.fasta (e.g. chr1.fasta)
-# Mappability prefix: HiScanner opens ${MAPPABILITY_STEM}chr1.txt
-# Check the real file names after downloading and set the prefix to match.
-MAPPABILITY_STEM="${RESOURCES_DIR%/}/hg38_mappability/150_mer."
+MAPPABILITY_STEM="${RESOURCES_DIR%/}/hg38_mappability/150mer."
 
 # Chromosomes to analyze (space-separated, names as in the BAM/VCF)
 HS_CHROMS="${CHR}"
