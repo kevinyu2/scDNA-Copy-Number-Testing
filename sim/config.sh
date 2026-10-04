@@ -64,7 +64,7 @@ HS_MULTISAMPLE=false                # use_multisample_segmentation
 HS_BINSIZE=500000
 HS_LAMBDA=16
 HS_LAMBDA_RANGE="[2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]"
-HS_MAX_WGD=2
+HS_MAX_WGD=1 # Maximum whole genome duplication it tests. Set at 1 for no WGD
 HS_BATCH_SIZE=5
 HS_DEPTH_FILTER=0
 HS_ADO_THRESHOLD=0.2
@@ -75,7 +75,7 @@ HS_THREADS=16
 
 # Run control
 HS_USE_CLUSTER=true              
-HS_RERUN=false                      # true = redo steps even if outputs exist
+HS_RERUN=true                      # true = redo steps even if outputs exist
 
 
 
