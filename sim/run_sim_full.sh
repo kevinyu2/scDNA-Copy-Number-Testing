@@ -92,5 +92,6 @@ fi
 
 # ---------------- Stage 3 (same pattern) ----------------
 if (( START_STAGE <= 3 && STOP_STAGE >= 3 )); then
-    sbatch --parsable ${DEP_ARGS[@]+"${DEP_ARGS[@]}"} "${SCRIPT_DIR}/03_hiscanner.sh"
+    S3_JOB=$(sbatch --parsable ${DEP_ARGS[@]+"${DEP_ARGS[@]}"} "${SCRIPT_DIR}/hiscanner_run.sh")
+    echo "Submitted HiScanner: ${S3_JOB}"
 fi
