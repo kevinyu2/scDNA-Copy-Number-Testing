@@ -91,6 +91,6 @@ if (( START_STAGE <= 2 && STOP_STAGE >= 2 )); then
 fi
 
 # ---------------- Stage 3 (same pattern) ----------------
-# if (( START_STAGE <= 3 && STOP_STAGE >= 3 )); then
-#     sbatch --parsable ${DEP_ARGS[@]+"${DEP_ARGS[@]}"} "${SCRIPT_DIR}/03_hiscanner.sh"
-# fi
+if (( START_STAGE <= 3 && STOP_STAGE >= 3 )); then
+    sbatch --parsable ${DEP_ARGS[@]+"${DEP_ARGS[@]}"} "${SCRIPT_DIR}/03_hiscanner.sh"
+fi

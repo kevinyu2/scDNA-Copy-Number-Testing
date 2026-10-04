@@ -116,3 +116,16 @@ fi
 # silences HiScanner's missing-md5 warnings
 md5sum gatk/hc_raw.mmq60.vcf.gz    > gatk/hc_raw.mmq60.vcf.gz.md5
 md5sum eagle/phased_hets.vcf.gz    > eagle/phased_hets.vcf.gz.md5
+
+
+# ---- Remove GATK per-chunk files once the merged VCF is in place ----
+if [[ ${SCAN2_CLEAN_CHUNKS:-true} == true ]]; then
+  if [[ -s gatk/hc_raw.mmq60.vcf.gz && -s gatk/hc_raw.mmq60.vcf.gz.tbi ]]; then
+    find gatk -maxdepth 1 \( -name 'hc_raw.mmq60_chunk*.vcf' \
+                          -o -name 'hc_raw.mmq60_chunk*.vcf.idx' \
+                          -o -name 'scatter_benchmark.mmq60_chunk*.tsv' \) -delete
+    echo "Removed GATK chunk files"
+  else
+    echo "Merged VCF missing; keeping chunk files" >&2
+  fi
+fi

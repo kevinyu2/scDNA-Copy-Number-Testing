@@ -32,12 +32,14 @@ WINDOWS_BED="/n/fs/ragr-data/users/ky8418/scDNA_sim/sim_resources/chr1_2000windo
 GENOME="hg38"
 CHR="chr1"
 
+# Clean chunk files
+SCAN2_CLEAN_CHUNK=true
 
 # ============================================================
 # SLURM 
 # ============================================================
 SLURM_PARTITION="cs"
-SLURM_ACCOUNT="allcs"          # find yours with: sacctmgr show assoc user=$USER format=account
+SLURM_ACCOUNT="allcs"
 
 
 # ============================================================
