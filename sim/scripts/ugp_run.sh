@@ -161,7 +161,9 @@ gmap_path: ${EAGLE_GENMAP}
 params_combine_counts:
   detect_loh_tumor_cell_line: false
   min_snp_reads: ${UGP_MIN_SNP_READS}
+  min_snp_per_bin: ${UGP_MIN_SNP_PER_BIN}
   min_total_reads: ${UGP_MIN_TOTAL_READS}
+  gene_aware_binning: ${UGP_GENE_AWARE_BINNING}
 
 threads:
   genotype: ${UGP_THREADS_STEP}

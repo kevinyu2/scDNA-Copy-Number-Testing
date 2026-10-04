@@ -82,6 +82,7 @@ HS_RERUN=false                      # true = redo steps even if outputs exist
 # ============================================================
 # Universal Genotyping Pipeline
 # ============================================================
+
 UGP_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/genotyping-env"
 UGP_REPO="/n/fs/ragr-research/users/ky8418/Universal-Genotyping-Pipeline"
 UGP_CONDA_PREFIX="/n/fs/ragr-data/users/ky8418/scDNA_sim/ugp_conda"   # same as in step 1
@@ -97,9 +98,13 @@ UGP_PHASING_PANEL="${RESOURCES_DIR%/}/ugp_phasing_panel"
 UGP_GTF="${RESOURCES_DIR%/}/gencode.v38.annotation.gtf.gz"
 EAGLE_GENMAP="${RESOURCES_DIR%/}/genetic_map_hg38_withX.txt.gz"
 
-# Binning (percell). UGP's docs suggest 50–200 for low coverage.
-UGP_MIN_SNP_READS="[50, 100, 200]"
-UGP_MIN_TOTAL_READS=1000   # read starts per bin per dataset; the default 5000 makes ~7 Mb bins at 0.1x
+# Adaptive binning (percell only; bulk mode stops before binning)
+# A bin closes when EVERY cell meets these thresholds, so the sparsest cell sets the size.
+UGP_MIN_SNP_READS="[50, 100, 200]"   # SNP-covering reads per cell per bin; each value gives its own MSR{n}/ output
+UGP_MIN_SNP_PER_BIN=1                # het SNPs per bin (UGP default: 1)
+UGP_MIN_TOTAL_READS=1000             # read starts per cell per bin; 0 disables (UGP default: 5000)
+UGP_GENE_AWARE_BINNING=true          # never cut inside a gene (UGP default: true)
+
 
 UGP_CORES=16
 UGP_THREADS_STEP=4
