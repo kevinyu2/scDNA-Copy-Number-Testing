@@ -139,3 +139,5 @@ EVAL_MAX_CN=8             # confusion-matrix axis cap; higher values lumped into
 EVAL_MIN_COVERED=0.5      # min fraction of a bin with aligned truth to score it
 EVAL_Y_LINEAR_MAX=8       # track plots: CN above this goes above an axis break
 EVAL_MERGE_GAP=1000       # bridge indels up to this size (bp) when lifting truth
+EVAL_MAX_MEAN_DEV=0.5     # skip bins where small high-CN truth pieces (ecDNA) dominate read depth (when majority is this much different from the mean)
+                          # NOTE: if using small sections, may want to set this to inf to turn it off

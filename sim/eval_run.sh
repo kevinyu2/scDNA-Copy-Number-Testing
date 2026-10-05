@@ -91,6 +91,7 @@ python3 -B "${SCRIPTS}/eval_hiscanner.py" \
     --min-covered "${EVAL_MIN_COVERED:-0.5}" \
     --y-linear-max "${EVAL_Y_LINEAR_MAX:-8}" \
     --merge-gap "${EVAL_MERGE_GAP:-1000}" \
+    --max-mean-dev "${EVAL_MAX_MEAN_DEV:-0.5}" \
     --orientation "${EVAL_ORIENTATION}" \
     --cells-per-page "${EVAL_CELLS_PER_PAGE}" \
     --max-cells-plot "${EVAL_MAX_CELLS_PLOT}" \

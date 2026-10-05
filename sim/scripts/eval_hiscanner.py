@@ -15,6 +15,9 @@ the truth at its own breakpoints)
     covered_*  fraction of the bin that has any aligned truth
   A bin is scored when purity >= --purity and covered >= --min-covered on
   both haplotypes. Unaligned gaps do not count against purity.
+  Bins whose length-weighted mean truth differs from the majority truth by
+  more than --max-mean-dev are also skipped: small high-CN pieces (ecDNA)
+  barely move the majority but dominate the read depth HiScanner measures.
 
 Haplotype orientation (which HiScanner haplotype is maternal)
   actual  one assignment for all cells (--orientation global), or one per
@@ -25,7 +28,8 @@ Haplotype orientation (which HiScanner haplotype is maternal)
           switch were corrected.
 
 Outputs (in --out-dir)
-  per_cell_tracks.pdf     maternal/paternal predicted vs true along the chromosome
+  per_cell_tracks.pdf       maternal/paternal predicted vs true (actual orientation)
+  per_cell_tracks_ideal.pdf same, ideal phasing interpretation (purple ticks = A/B swapped)
   confusion_all_cells.pdf true vs predicted per bin, all cells pooled (actual + ideal)
   bins.tsv, cells.tsv, summary.txt
 """
@@ -164,6 +168,9 @@ def main():
     ap.add_argument("--max-cn", type=int, default=8, help="heatmap axis cap; larger values lumped")
     ap.add_argument("--y-linear-max", type=float, default=8, help="track plots: CN above this goes above an axis break")
     ap.add_argument("--merge-gap", type=int, default=1000)
+    ap.add_argument("--max-mean-dev", type=float, default=0.5,
+                    help="skip bins where length-weighted mean truth differs from majority truth by more than this "
+                         "(small high-CN pieces such as ecDNA dominate read depth there)")
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
 
@@ -201,8 +208,11 @@ def main():
     has_truth = bins.true_mat.notna() & bins.true_pat.notna()
     covered_ok = (bins.covered_mat >= a.min_covered) & (bins.covered_pat >= a.min_covered)
     straddles = (bins.purity_mat < a.purity) | (bins.purity_pat < a.purity)
-    bins["scored"] = has_truth & covered_ok & ~straddles
+    mean_dev = ((bins.truemean_mat - bins.true_mat).abs() > a.max_mean_dev) | \
+               ((bins.truemean_pat - bins.true_pat).abs() > a.max_mean_dev)
     bins["straddles"] = has_truth & straddles
+    bins["depth_mismatch"] = has_truth & ~straddles & mean_dev
+    bins["scored"] = has_truth & covered_ok & ~straddles & ~mean_dev
 
     # ---------------- actual orientation ----------------
     def agree(df, swap):
@@ -223,9 +233,11 @@ def main():
     bins["pred_pat"] = np.where(bins.swap, bins.CN_A, bins.CN_B)
 
     # ---------------- ideal phasing interpretation ----------------
-    d_keep = (bins.pred_mat - bins.true_mat).abs() + (bins.pred_pat - bins.true_pat).abs()
-    d_flip = (bins.pred_pat - bins.true_mat).abs() + (bins.pred_mat - bins.true_pat).abs()
-    flip = d_flip < d_keep                      # ties keep the actual orientation
+    # A haplotype with no aligned truth in the bin contributes nothing, so the
+    # other haplotype still decides; ties (and no truth at all) keep the actual orientation.
+    d_keep = (bins.pred_mat - bins.true_mat).abs().fillna(0) + (bins.pred_pat - bins.true_pat).abs().fillna(0)
+    d_flip = (bins.pred_pat - bins.true_mat).abs().fillna(0) + (bins.pred_mat - bins.true_pat).abs().fillna(0)
+    flip = d_flip < d_keep
     bins["ideal_flipped"] = flip
     bins["pred_mat_ideal"] = np.where(flip, bins.pred_pat, bins.pred_mat)
     bins["pred_pat_ideal"] = np.where(flip, bins.pred_mat, bins.pred_pat)
@@ -268,7 +280,8 @@ def main():
         f"cells with calls but no truth (skipped): {len(no_truth)}" + (f"  e.g. {no_truth[:5]}" if no_truth else ""),
         f"bins: {n_bins}   scored: {n_sc} ({n_sc / n_bins:.1%})",
         f"  not scored, straddle a true breakpoint: {int(bins.straddles.sum())}",
-        f"  not scored, < {a.min_covered:.0%} of bin has aligned truth: {int((has_truth & ~covered_ok & ~straddles).sum() + (~has_truth).sum())}",
+        f"  not scored, small high-CN truth pieces (e.g. ecDNA; mean vs majority > {a.max_mean_dev}): {int(bins.depth_mismatch.sum())}",
+        f"  not scored, < {a.min_covered:.0%} of bin has aligned truth: {int((has_truth & ~covered_ok & ~straddles & ~mean_dev).sum() + (~has_truth).sum())}",
         orient_note,
         "",
         "accuracy over scored bins (exact match)        actual    ideal phasing",
@@ -356,43 +369,56 @@ def main():
     if a.max_cells_plot > 0:
         plot_cells = plot_cells[: a.max_cells_plot]
     cst = cells.set_index("cell")
-    cpp = max(1, a.cells_per_page)
-    with PdfPages(os.path.join(a.out_dir, "per_cell_tracks.pdf")) as pdf:
-        for k in range(0, len(plot_cells), cpp):
-            chunk = plot_cells[k:k + cpp]
-            fig, axs = plt.subplots(2 * len(chunk), 1, figsize=(12.5, 4.0 * len(chunk)), squeeze=False)
-            for i, cell in enumerate(chunk):
-                cb = bins[bins.cell == cell].sort_values("start")
-                chrom = cb.chrom.iloc[0]
-                st = cst.loc[cell]
-                for j, (h, name, col) in enumerate((("mat", "maternal", "tab:red"), ("pat", "paternal", "tab:blue"))):
-                    ax = axs[2 * i + j, 0]
-                    tg = tgroups.get((cell, h, chrom), pd.DataFrame(columns=["start", "end", "cn"]))
-                    ys = YScale(list(tg.cn.values) + list(cb[f"pred_{h}"].values), a.y_linear_max)
-                    tx, ty = step_xy(tg.start.values, tg.end.values, tg.cn.values.astype(float), a.merge_gap)
-                    px, py = step_xy(cb.start.values, cb.end.values, cb[f"pred_{h}"].values.astype(float), 1000)
-                    ax.plot(tx, ys(ty), color="black", lw=6, alpha=0.25, solid_capstyle="butt", label="true (aligned regions)")
-                    ax.plot(px, ys(py), color=col, lw=1.3, label="HiScanner")
-                    first = True
-                    for _, r in cb[cb.straddles].iterrows():
-                        ax.axvspan(r.start / 1e6, r.end / 1e6, color="grey", alpha=0.15, lw=0,
-                                   label="straddles true breakpoint (not scored)" if first else None)
-                        first = False
-                    ys.decorate(ax)
-                    ax.set_ylabel(f"{name}\nCN", fontsize=8)
-                    ax.grid(axis="y", alpha=0.3)
-                    ax.legend(loc="upper left", fontsize=6, ncol=3)
-                    if j == 0:
-                        ax.set_title(f"{cell}   both-hap acc {st.get('acc_both', np.nan):.2f} "
-                                     f"(ideal phasing {st.get('acc_both_ideal', np.nan):.2f})   "
-                                     f"total acc {st.get('acc_total', np.nan):.2f}   gamma {st.gamma:.2f}",
-                                     fontsize=9, loc="left")
-                    else:
-                        ax.set_xlabel(f"{chrom} position (Mb, hg38)", fontsize=8)
-            fig.tight_layout()
-            pdf.savefig(fig); plt.close(fig)
 
-    print(f"\nwrote {a.out_dir}/per_cell_tracks.pdf, confusion_all_cells.pdf, bins.tsv, cells.tsv, summary.txt")
+    def plot_tracks(path, suffix, heading):
+        cpp = max(1, a.cells_per_page)
+        with PdfPages(path) as pdf:
+            for k in range(0, len(plot_cells), cpp):
+                chunk = plot_cells[k:k + cpp]
+                fig, axs = plt.subplots(2 * len(chunk), 1, figsize=(12.5, 4.0 * len(chunk)), squeeze=False)
+                for i, cell in enumerate(chunk):
+                    cb = bins[bins.cell == cell].sort_values("start")
+                    chrom = cb.chrom.iloc[0]
+                    st = cst.loc[cell]
+                    for j, (h, name, col) in enumerate((("mat", "maternal", "tab:red"), ("pat", "paternal", "tab:blue"))):
+                        ax = axs[2 * i + j, 0]
+                        pcol = f"pred_{h}{suffix}"
+                        tg = tgroups.get((cell, h, chrom), pd.DataFrame(columns=["start", "end", "cn"]))
+                        ys = YScale(list(tg.cn.values) + list(cb[pcol].values), a.y_linear_max)
+                        tx, ty = step_xy(tg.start.values, tg.end.values, tg.cn.values.astype(float), a.merge_gap)
+                        px, py = step_xy(cb.start.values, cb.end.values, cb[pcol].values.astype(float), 1000)
+                        ax.plot(tx, ys(ty), color="black", lw=3, alpha=0.45, solid_capstyle="butt", zorder=2,
+                                label="true (aligned regions)")
+                        ax.plot(px, ys(py), color=col, lw=1.3, zorder=3, label="HiScanner")
+                        for flag, colr, lab in (("straddles", "grey", "straddles true breakpoint"),
+                                                ("depth_mismatch", "orange", "small high-CN truth pieces")):
+                            first = True
+                            for _, r in cb[cb[flag]].iterrows():
+                                ax.axvspan(r.start / 1e6, r.end / 1e6, color=colr, alpha=0.15, lw=0, zorder=1,
+                                           label=f"{lab} (not scored)" if first else None)
+                                first = False
+                        ys.decorate(ax)
+                        if suffix == "_ideal":
+                            fl = cb[cb.ideal_flipped]
+                            if len(fl):
+                                ax.scatter((fl.start + fl.end) / 2e6, np.full(len(fl), -0.25), marker="|", s=40,
+                                           color="tab:purple", zorder=4, label="A/B swapped here")
+                        ax.set_ylabel(f"{name}\nCN", fontsize=8)
+                        ax.grid(axis="y", alpha=0.3)
+                        ax.legend(loc="upper left", fontsize=6, ncol=3)
+                        if j == 0:
+                            ax.set_title(f"{cell}   both-hap acc {st.get('acc_both' + suffix, np.nan):.2f}   "
+                                         f"total acc {st.get('acc_total', np.nan):.2f}   gamma {st.gamma:.2f}   [{heading}]",
+                                         fontsize=9, loc="left")
+                        else:
+                            ax.set_xlabel(f"{chrom} position (Mb, hg38)", fontsize=8)
+                fig.tight_layout()
+                pdf.savefig(fig); plt.close(fig)
+
+    plot_tracks(os.path.join(a.out_dir, "per_cell_tracks.pdf"), "", "actual orientation")
+    plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_ideal.pdf"), "_ideal", "ideal phasing interpretation")
+
+    print(f"\nwrote {a.out_dir}/per_cell_tracks.pdf, per_cell_tracks_ideal.pdf, confusion_all_cells.pdf, bins.tsv, cells.tsv, summary.txt")
 
 
 if __name__ == "__main__":
