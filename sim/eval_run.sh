@@ -70,23 +70,27 @@ done
 # 2. Lift truth to hg38
 # ============================================================
 
-python3 "${SCRIPTS}/lift_truth.py" \
+python3 -B "${SCRIPTS}/lift_truth.py" \
     --cn-mat-dir "${CN_MAT_DIR}" \
     --mat-paf "${EVAL_LIFT_DIR}/mat_to_hg38.${CHR}.paf" \
     --pat-paf "${EVAL_LIFT_DIR}/pat_to_hg38.${CHR}.paf" \
     --query-chrom "${CHR}" \
     --target-chrom "${CHR}" \
+    --merge-gap "${EVAL_MERGE_GAP:-1000}" \
     --out "${TRUTH}"
 
 # ============================================================
 # 3. Evaluate HiScanner
 # ============================================================
 
-python3 "${SCRIPTS}/eval_hiscanner.py" \
+python3 -B "${SCRIPTS}/eval_hiscanner.py" \
     --truth "${TRUTH}" \
     --calls-dir "${CALLS_DIR}" \
     --out-dir "${OUT_DIR}" \
     --purity "${EVAL_PURITY}" \
+    --min-covered "${EVAL_MIN_COVERED:-0.5}" \
+    --y-linear-max "${EVAL_Y_LINEAR_MAX:-8}" \
+    --merge-gap "${EVAL_MERGE_GAP:-1000}" \
     --orientation "${EVAL_ORIENTATION}" \
     --cells-per-page "${EVAL_CELLS_PER_PAGE}" \
     --max-cells-plot "${EVAL_MAX_CELLS_PLOT}" \

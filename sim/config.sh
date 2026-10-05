@@ -135,3 +135,7 @@ EVAL_ORIENTATION=global   # global | cell
 EVAL_CELLS_PER_PAGE=4
 EVAL_MAX_CELLS_PLOT=0     # 0 = plot every cell
 EVAL_MAX_CN=8             # confusion-matrix axis cap; higher values lumped into "8+"
+
+EVAL_MIN_COVERED=0.5      # min fraction of a bin with aligned truth to score it
+EVAL_Y_LINEAR_MAX=8       # track plots: CN above this goes above an axis break
+EVAL_MERGE_GAP=1000       # bridge indels up to this size (bp) when lifting truth

@@ -14,8 +14,8 @@
 #   UGP_MODE=percell -> also add every cell as its own scDNA "tumor" dataset and run
 #                       through combine_counts (bins x cells RDR + phased allele counts)
 #
-# Usage: sbatch scripts/ugp_run.sh            (real run)
-#        UGP_DRYRUN=true bash scripts/ugp_run.sh   (dry run on the login node)
+# Usage: sbatch ugp_run.sh                   (real run)
+#        UGP_DRYRUN=true bash ugp_run.sh     (dry run on the login node)
 
 source "./config.sh"
 
