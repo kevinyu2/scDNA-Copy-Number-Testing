@@ -37,6 +37,9 @@ Outputs (in --out-dir)
                           % of compared bases called correctly and mean (signed and
                           absolute) CN difference, actual and ideal phasing
   sections_by_cell.tsv    the same per cell x column
+  bin_event_counts.tsv    per bin: number of cells with a gain / loss / normal state,
+                          true and predicted, per haplotype and for total CN
+  event_counts.pdf        those counts along the chromosome
 """
 import argparse
 import glob
@@ -147,6 +150,19 @@ class YScale:
                 ax.plot([dx - 0.006, dx + 0.006], [yb - 0.25, yb + 0.25], **kw)
             ax.text(1.002, yb, " axis break:\n values above\n not to scale", transform=ax.get_yaxis_transform(),
                     fontsize=6, va="center", ha="left", color="grey")
+
+
+def event_stats(true, pred, normal):
+    """Gain = CN > normal, loss = CN < normal. Returns TP/FP/FN counts per event."""
+    ok = true.notna() & pred.notna()
+    t, p = true[ok], pred[ok]
+    out = {}
+    for ev, ft in (("gain", lambda x: x > normal), ("loss", lambda x: x < normal)):
+        tt, pp = ft(t), ft(p)
+        out[f"{ev}_tp"] = int((tt & pp).sum())
+        out[f"{ev}_fp"] = int((~tt & pp).sum())
+        out[f"{ev}_fn"] = int((tt & ~pp).sum())
+    return out
 
 
 def load_calls(path):
@@ -317,6 +333,12 @@ def main():
               file=sys.stderr)
 
     # ---------------- metrics ----------------
+    def hap_events(p, suffix):
+        """Gains/losses per haplotype (gain = CN > 1, loss = CN 0), mat and pat pooled."""
+        tr = pd.concat([p.true_mat, p.true_pat], ignore_index=True)
+        pr = pd.concat([p[f"pred_mat{suffix}"], p[f"pred_pat{suffix}"]], ignore_index=True)
+        return {f"hap_{k}{suffix}": v for k, v in event_stats(tr, pr, 1).items()}
+
     def metrics(p):
         if len(p) == 0:
             return {}
@@ -332,6 +354,9 @@ def main():
             "mae_hap_ideal": np.mean((p.pred_mat_ideal - p.true_mat).abs() + (p.pred_pat_ideal - p.true_pat).abs()) / 2,
             "mae_total": np.mean((p.pred_total - p.true_total).abs()),
             "frac_bins_flipped_ideal": np.mean(p.ideal_flipped),
+            **hap_events(p, ""),
+            **hap_events(p, "_ideal"),
+            **{f"total_{k}": v for k, v in event_stats(p.true_total, p.pred_total, 2).items()},
         }
 
     cells = pd.DataFrame([dict(cell=c, n_bins=len(g), n_scored=int(g.scored.sum()),
@@ -360,6 +385,27 @@ def main():
         f"  total CN mean |error|                         {mt['mae_total']:.3f}",
         f"  bins the ideal interpretation flips           {mt['frac_bins_flipped_ideal']:.3f}",
         "",
+        "gains / losses over scored bins (haplotype: gain = CN > 1, loss = CN 0; total: gain > 2, loss < 2)",
+        f"  {'':34s}{'TP':>9s}{'FP':>9s}{'FN':>9s}{'precision':>11s}{'recall':>8s}",
+    ]
+    scored_bins = bins[bins.scored]
+
+    def ev_line(label, d, ev):
+        tp, fp, fn = d[f"{ev}_tp"], d[f"{ev}_fp"], d[f"{ev}_fn"]
+        prec = tp / (tp + fp) if tp + fp else float("nan")
+        rec = tp / (tp + fn) if tp + fn else float("nan")
+        return f"  {label:34s}{tp:9d}{fp:9d}{fn:9d}{prec:11.3f}{rec:8.3f}"
+
+    for lab, t_, p_, nrm in (("maternal", "true_mat", "pred_mat", 1), ("paternal", "true_pat", "pred_pat", 1),
+                             ("maternal (ideal phasing)", "true_mat", "pred_mat_ideal", 1),
+                             ("paternal (ideal phasing)", "true_pat", "pred_pat_ideal", 1),
+                             ("total CN", "true_total", "pred_total", 2)):
+        d = event_stats(scored_bins[t_], scored_bins[p_], nrm)
+        summ.append(ev_line(f"{lab} gain", d, "gain"))
+        summ.append(ev_line(f"{lab} loss", d, "loss"))
+    summ += [
+        "  (TP/FP/FN count bins; FP = called but not true, FN = true but not called)",
+        "",
         f"per-cell both-haplotype accuracy: actual median {cells.acc_both.median():.3f}, "
         f"ideal median {cells.acc_both_ideal.median():.3f}",
     ]
@@ -369,6 +415,51 @@ def main():
     with open(os.path.join(a.out_dir, "summary.txt"), "w") as fh:
         fh.write(text + "\n")
     print(text)
+
+    # ---------------- cells gained / lost / normal at each bin ----------------
+    # Population view over all bins (not only scored ones); truth = bin majority.
+    def classify(x, normal):
+        return np.select([x > normal, x < normal, x == normal], ["gain", "loss", "normal"], default="na")
+
+    cnt_cols = []
+    for lab, col, nrm in (("mat_true", "true_mat", 1), ("mat_pred", "pred_mat", 1), ("mat_pred_ideal", "pred_mat_ideal", 1),
+                          ("pat_true", "true_pat", 1), ("pat_pred", "pred_pat", 1), ("pat_pred_ideal", "pred_pat_ideal", 1),
+                          ("total_true", "true_total", 2), ("total_pred", "pred_total", 2)):
+        bins[f"_c_{lab}"] = classify(bins[col].values.astype(float), nrm)
+        cnt_cols.append(lab)
+    g = bins.groupby(["chrom", "start", "end"], sort=True)
+    bc = g.size().rename("n_cells").to_frame()
+    for lab in cnt_cols:
+        for ev in ("gain", "loss", "normal"):
+            bc[f"{lab}_{ev}"] = g[f"_c_{lab}"].apply(lambda v, ev=ev: int((v == ev).sum()))
+    bc = bc.reset_index()
+    bins.drop(columns=[c for c in bins.columns if c.startswith("_c_")], inplace=True)
+    bc.to_csv(os.path.join(a.out_dir, "bin_event_counts.tsv"), sep="\t", index=False)
+
+    with PdfPages(os.path.join(a.out_dir, "event_counts.pdf")) as pdf:
+        for suffix, heading in (("", "actual orientation"), ("_ideal", "ideal phasing interpretation")):
+            rows_ = [("mat", "maternal (gain = CN > 1, loss = CN 0)"), ("pat", "paternal (gain = CN > 1, loss = CN 0)")]
+            if suffix == "":
+                rows_.append(("total", "total CN (gain > 2, loss < 2)"))
+            for chrom, cc in bc.groupby("chrom"):
+                fig, axs = plt.subplots(len(rows_), 1, figsize=(12.5, 3.2 * len(rows_)), squeeze=False)
+                for ax, (h, title) in zip(axs[:, 0], rows_):
+                    for ev, colr in (("gain", "tab:red"), ("loss", "tab:blue")):
+                        tx, ty = step_xy(cc.start.values, cc.end.values, cc[f"{h}_true_{ev}"].values.astype(float), 1000)
+                        px, py = step_xy(cc.start.values, cc.end.values, cc[f"{h}_pred{suffix}_{ev}"].values.astype(float), 1000)
+                        ax.plot(tx, ty, color=colr, lw=3, alpha=0.35, label=f"true {ev}")
+                        ax.plot(px, py, color=colr, lw=1.2, label=f"HiScanner {ev}")
+                    ax.set_ylabel("cells", fontsize=8)
+                    top = max(1, *(cc[f"{h}_{k}_{ev}"].max() for k in ("true", f"pred{suffix}") for ev in ("gain", "loss")))
+                    ax.set_ylim(-0.02 * top, top * 1.15)        # headroom so lines at the max stay visible
+                    ax.set_title(title, fontsize=9, loc="left")
+                    ax.grid(axis="y", alpha=0.3)
+                    ax.legend(loc="upper right", fontsize=7, ncol=4)
+                axs[-1, 0].set_xlabel(f"{chrom} position (Mb, hg38)", fontsize=8)
+                fig.suptitle(f"Cells with a gain or loss at each bin - {heading} "
+                             f"(normal = cells called minus gains and losses)", fontsize=10)
+                fig.tight_layout()
+                pdf.savefig(fig); plt.close(fig)
 
     # ---------------- heatmaps ----------------
     cap = a.max_cn
@@ -478,7 +569,7 @@ def main():
     plot_tracks(os.path.join(a.out_dir, "per_cell_tracks.pdf"), "", "actual orientation")
     plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_ideal.pdf"), "_ideal", "ideal phasing interpretation")
 
-    print(f"\nwrote {a.out_dir}/per_cell_tracks.pdf, per_cell_tracks_ideal.pdf, confusion_all_cells.pdf, bins.tsv, cells.tsv, summary.txt")
+    print(f"\nwrote {a.out_dir}/per_cell_tracks.pdf, per_cell_tracks_ideal.pdf, confusion_all_cells.pdf, event_counts.pdf, bins.tsv, cells.tsv, summary.txt")
 
 
 if __name__ == "__main__":
