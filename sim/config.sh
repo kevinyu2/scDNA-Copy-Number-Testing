@@ -111,6 +111,7 @@ UGP_THREADS_GENOTYPE=1     # bcftools mpileup is single-threaded; more doesn't h
 UGP_THREADS_PHASE=16       # Eagle uses all of these
 UGP_THREADS_PILEUP=1       # per-cell jobs (percell mode): 1 each lets 16 cells run at once
 UGP_THREADS_MOSDEPTH=1
+UGP_EXECUTOR=local         # local = run inside this job (best for bulk mode); slurm = one cluster job per step
 
 # ============================================================
 # CHISEL

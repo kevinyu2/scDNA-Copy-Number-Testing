@@ -185,11 +185,16 @@ SMK_ARGS=(
     --configfile "${UGP_DIR}/config.yaml"
     --directory "${UGP_DIR}/out"
     --config sample_file="${SAMPLES_JSON}" sample_id="${UGP_SAMPLE_ID}"
-    --executor slurm --jobs 100
-    --default-resources slurm_partition="${SLURM_PARTITION}" slurm_account="${SLURM_ACCOUNT}" mem_mb=8000 runtime=240
     --conda-prefix "${UGP_CONDA_PREFIX}"
     --rerun-incomplete
 )
+
+if [[ ${UGP_EXECUTOR:-local} == slurm ]]; then
+    SMK_ARGS+=(--executor slurm --jobs 100
+               --default-resources slurm_partition="${SLURM_PARTITION}" slurm_account="${SLURM_ACCOUNT}" mem_mb=8000 runtime=240)
+else
+    SMK_ARGS+=(--cores "${UGP_CORES}")
+fi
 
 mkdir -p "${UGP_DIR}/out"
 
