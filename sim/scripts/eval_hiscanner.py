@@ -28,7 +28,8 @@ Haplotype orientation (which HiScanner haplotype is maternal)
           switch were corrected.
 
 Outputs (in --out-dir)
-  per_cell_tracks.pdf       maternal/paternal predicted vs true (actual orientation)
+  per_cell_tracks.pdf       maternal/paternal predicted vs true (actual orientation);
+                            shows all data, scoring is not marked
   per_cell_tracks_ideal.pdf same, ideal phasing interpretation (purple ticks = A/B swapped)
   confusion_all_cells.pdf true vs predicted per bin, all cells pooled (actual + ideal)
   bins.tsv, cells.tsv, summary.txt
@@ -388,15 +389,8 @@ def main():
                         tx, ty = step_xy(tg.start.values, tg.end.values, tg.cn.values.astype(float), a.merge_gap)
                         px, py = step_xy(cb.start.values, cb.end.values, cb[pcol].values.astype(float), 1000)
                         ax.plot(tx, ys(ty), color="black", lw=3, alpha=0.45, solid_capstyle="butt", zorder=2,
-                                label="true (aligned regions)")
+                                label="true")
                         ax.plot(px, ys(py), color=col, lw=1.3, zorder=3, label="HiScanner")
-                        for flag, colr, lab in (("straddles", "grey", "straddles true breakpoint"),
-                                                ("depth_mismatch", "orange", "small high-CN truth pieces")):
-                            first = True
-                            for _, r in cb[cb[flag]].iterrows():
-                                ax.axvspan(r.start / 1e6, r.end / 1e6, color=colr, alpha=0.15, lw=0, zorder=1,
-                                           label=f"{lab} (not scored)" if first else None)
-                                first = False
                         ys.decorate(ax)
                         if suffix == "_ideal":
                             fl = cb[cb.ideal_flipped]

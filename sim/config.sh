@@ -2,7 +2,7 @@
 
 # config.sh
 
-PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/proj_COLO_mat_final"
+PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/proj_simple"
 CONDA=/n/fs/ragr-research/users/ky8418/miniconda3/etc/profile.d/conda.sh
 ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/scdna_pipeline"
 
@@ -12,7 +12,7 @@ SIM_MAT_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/
 SIM_PAT_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/hg002/HG002_pat_chr1.fa"
 # This one gets created automatically if not present
 SIM_FULL_FA="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/hg002/HG002_full_chr1.fa"
-TREE_FILE="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/trees/mat_COLO2.tree"
+TREE_FILE="/n/fs/ragr-research/users/ky8418/scDNA_cn/scDNA-Copy-Number-Testing/sim/data/trees/test_easy.tree"
 
 # Simulation parameters
 ADO_FREQ=0.000005
