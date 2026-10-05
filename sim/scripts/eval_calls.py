@@ -343,7 +343,7 @@ def main():
             col["mean_true_cn"] = byc.groupby(["hap", "seg"], sort=False).true_cn.mean()
             col["true_cn_values"] = byc.groupby(["hap", "seg"], sort=False).true_cn.apply(
                 lambda v: ",".join(str(int(x)) for x in sorted(v.unique())))
-            # number of cells whose section is gained / lost / normal (true, and HiScanner's majority call)
+            # number of cells whose section is gained / lost / normal (true, and the caller's majority call)
             gk = byc.groupby(["hap", "seg"], sort=False)
             for src, lab in (("true_state", "true"), ("pred_state", "pred"), ("pred_state_ideal", "pred_ideal")):
                 for ev in ("gain", "loss", "normal"):
