@@ -1,13 +1,16 @@
 #!/bin/bash
-#SBATCH --job-name=scDNA_sim_bulk
+#SBATCH --job-name=sim_bulk
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=16
 #SBATCH --time=24:00:00
-#SBATCH --output=logs/bulk_scDNA_sim_%j.out
-#SBATCH --error=logs/bulk_scDNA_sim_%j.err
+#SBATCH --output=logs/sim_bulk_%j.out
+#SBATCH --error=logs/sim_bulk_%j.err
 
-# Initialize conda
-source "./config.sh"
+# 30x matched bulk from both haplotypes. Submitted by run_sim.sh.
+
+LOG_TAG=sim_bulk
+source "${CONFIG_FILE:-./config.sh}"
+source ./scripts/common.sh
 
 
 source ${CONDA}
@@ -17,7 +20,7 @@ set -euo pipefail
 
 
 
-BULK_DIR="${PROJECT_DIR}/sim/bulk"
+BULK_DIR="${SIM_DIR}/bulk"
 BULK_FASTQ_DIR="${BULK_DIR}/fastq"
 
 mkdir -p "${BULK_FASTQ_DIR}"
@@ -64,7 +67,7 @@ mkdir -p "${BULK_BAM_DIR}"
 
 BULK_READ1="${BULK_FASTQ_DIR}/bulk.bwa.read1.fastq.gz"
 BULK_READ2="${BULK_FASTQ_DIR}/bulk.bwa.read2.fastq.gz"
-BULK_BAM="${BULK_BAM_DIR}/bulk.bam"
+# BULK_BAM comes from common.sh (${BULK_DIR}/bams/bulk.bam)
 
 echo "Aligning bulk reads..."
 

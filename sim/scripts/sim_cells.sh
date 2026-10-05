@@ -1,14 +1,17 @@
 #!/bin/bash
-#SBATCH --job-name=scDNA_sim
+#SBATCH --job-name=sim_cells
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=16
 #SBATCH --time=08:00:00
-#SBATCH --output=logs/scDNA_sim_%A_%a.out
-#SBATCH --error=logs/scDNA_sim_%A_%a.err
+#SBATCH --output=logs/sim_cells_%A_%a.out
+#SBATCH --error=logs/sim_cells_%A_%a.err
 
-# Initialize conda
+# One SLURM array task per batch: simulate the batch's cells (scDNA_sim.py ->
+# dwgsim), then align each cell with its own read group. Submitted by run_sim.sh.
 
-source "./config.sh"
+LOG_TAG=sim_cells
+source "${CONFIG_FILE:-./config.sh}"
+source ./scripts/common.sh
 
 
 source ${CONDA}
@@ -20,11 +23,11 @@ set -euo pipefail
 # Sample name comes from the SLURM array
 SAMPLE_NAME="batch${SLURM_ARRAY_TASK_ID}"
 
-python "./scDNA_sim.py" \
+python "./scripts/scDNA_sim.py" \
     --mat "${SIM_MAT_FA}" \
     --pat "${SIM_PAT_FA}" \
     --cnv "${TREE_FILE}" \
-    --out "${PROJECT_DIR}/sim" \
+    --out "${SIM_DIR}" \
     --sample-name "${SAMPLE_NAME}" \
     --ado-freq "${ADO_FREQ}" \
     --ado-mean "${ADO_MEAN}" \
@@ -32,14 +35,14 @@ python "./scDNA_sim.py" \
     --coverage-mean "${COVERAGE_MEAN}" \
     --coverage-var "${COVERAGE_VAR}"
 
-mkdir -p "${PROJECT_DIR}/sim/bams"
+mkdir -p "${CELL_BAM_DIR}"
 
 # Now find this batch's FASTQs and make BAMs
-for READ1 in "${PROJECT_DIR}/sim/dwgsim/${SAMPLE_NAME}_"*_sim.bwa.read1.fastq.gz; do
+for READ1 in "${SIM_DIR}/dwgsim/${SAMPLE_NAME}_"*_sim.bwa.read1.fastq.gz; do
     READ2="${READ1/.bwa.read1.fastq.gz/.bwa.read2.fastq.gz}"
 
     CELL_NAME="$(basename "${READ1}" .bwa.read1.fastq.gz)"
-    BAM="${PROJECT_DIR}/sim/bams/${CELL_NAME}.bam"
+    BAM="${CELL_BAM_DIR}/${CELL_NAME}.bam"
 
     
     bwa mem \

@@ -1,21 +1,29 @@
 #!/bin/bash
-#SBATCH --job-name=scDNA_sim_eval
+#SBATCH --job-name=eval
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=16
 #SBATCH --time=12:00:00
-#SBATCH --output=logs/eval_scDNA_sim_%j.out
-#SBATCH --error=logs/eval_scDNA_sim_%j.err
+#SBATCH --output=logs/eval_%j.out
+#SBATCH --error=logs/eval_%j.err
 
-# Evaluate HiScanner against the simulator's true copy numbers.
+# Evaluate one phaser -> caller route against the simulator's true copy numbers.
+# Submitted by run_pipeline.sh (PHASER and CALLER come from the environment).
 #
 # 1. Align each HG002 haplotype (mat, pat) to hg38 with minimap2 (once; cached
 #    in ${EVAL_LIFT_DIR}, reused by every project that uses the same FASTAs).
-# 2. lift_truth.py: move cn_mat truth from haplotype coordinates to hg38.
-# 3. eval_hiscanner.py: per-cell track plots, pooled confusion matrices, tables.
+# 2. lift_truth.py: move cn_mat truth from haplotype coordinates to hg38
+#    (${EVAL_DIR}/truth_hg38.tsv, shared by all routes).
+# 3. standardize_calls.py: the caller's output -> common calls table.
+# 4. eval_calls.py: per-cell track plots, pooled confusion matrices, tables.
 #
+# Output: ${EVAL_DIR}/<phaser>_<caller>/
 # All settings live in config.sh (EVAL section).
 
+LOG_TAG=eval
 source "${CONFIG_FILE:-./config.sh}"
+source ./scripts/common.sh
+[[ -n ${PHASER:-} && -n ${CALLER:-} ]] || die "PHASER and CALLER must be set (submit through run_pipeline.sh)"
+route_ok "${PHASER}" "${CALLER}" || die "route ${PHASER} -> ${CALLER} is not implemented"
 
 source ${CONDA}
 conda activate ${EVAL_ENV}
@@ -23,23 +31,25 @@ conda activate ${EVAL_ENV}
 set -euo pipefail
 
 SCRIPTS="$(pwd)/scripts"
-CN_MAT_DIR="${PROJECT_DIR}/sim/cn_mat"
-CALLS_DIR="${HS_DIR}/output/final_calls"
-OUT_DIR="${EVAL_DIR}/hiscanner"
-TRUTH="${EVAL_DIR}/truth_hg38.tsv"
-
-die()  { echo "ERROR: $*" >&2; exit 1; }
-note() { echo "[eval_run] $*" >&2; }
+CALL_OUT=$(caller_output "${CALLER}" "${PHASER}")
+OUT_DIR=$(eval_out_dir "${PHASER}" "${CALLER}")
+TRUTH="${EVAL_TRUTH}"
+CALLS_STD="${OUT_DIR}/calls.tsv"
+case ${CALLER} in
+    hiscanner) LABEL="HiScanner (${PHASER})" ;;
+    chisel)    LABEL="CHISEL (${PHASER})" ;;
+    *)         LABEL="${CALLER} (${PHASER})" ;;
+esac
 
 for tool in minimap2 samtools python3; do
     command -v "$tool" >/dev/null || die "'$tool' not found in env ${EVAL_ENV}"
 done
 python3 -c "import pandas, numpy, matplotlib" 2>/dev/null || die "python needs pandas, numpy, matplotlib in ${EVAL_ENV}"
-for f in "${SCRIPTS}/lift_truth.py" "${SCRIPTS}/eval_hiscanner.py" "${SIM_MAT_FA}" "${SIM_PAT_FA}" "${REF}"; do
+for f in "${SCRIPTS}/lift_truth.py" "${SCRIPTS}/standardize_calls.py" "${SCRIPTS}/eval_calls.py" "${SIM_MAT_FA}" "${SIM_PAT_FA}" "${REF}"; do
     [[ -e $f ]] || die "missing $f"
 done
 ls "${CN_MAT_DIR}"/*mat.tsv >/dev/null 2>&1 || die "no truth files in ${CN_MAT_DIR}"
-[[ -d ${CALLS_DIR} ]] || die "missing ${CALLS_DIR} (run HiScanner first)"
+[[ -e ${CALL_OUT} ]] || die "missing ${CALL_OUT} (run the call stage first)"
 
 mkdir -p "${EVAL_LIFT_DIR}" "${OUT_DIR}"
 
@@ -77,15 +87,31 @@ python3 -B "${SCRIPTS}/lift_truth.py" \
     --query-chrom "${CHR}" \
     --target-chrom "${CHR}" \
     --merge-gap "${EVAL_MERGE_GAP:-1000}" \
-    --out "${TRUTH}"
+    --out "${TRUTH}.tmp.$$"
+mv "${TRUTH}.tmp.$$" "${TRUTH}"     # atomic: evals of other routes may read it concurrently
 
 # ============================================================
-# 3. Evaluate HiScanner
+# 3. Caller output -> common calls table
 # ============================================================
 
-python3 -B "${SCRIPTS}/eval_hiscanner.py" \
+case ${CALLER} in
+    hiscanner)
+        python3 -B "${SCRIPTS}/standardize_calls.py" hiscanner \
+            --calls-dir "${CALL_OUT}" --out "${CALLS_STD}" ;;
+    chisel)
+        python3 -B "${SCRIPTS}/standardize_calls.py" chisel \
+            --calls "${CALL_OUT}" --barcodes "${CHISEL_BARCODES}" \
+            --clones "$(call_dir chisel "${PHASER}")/clones/mapping.tsv" --out "${CALLS_STD}" ;;
+esac
+
+# ============================================================
+# 4. Evaluate
+# ============================================================
+
+python3 -B "${SCRIPTS}/eval_calls.py" \
     --truth "${TRUTH}" \
-    --calls-dir "${CALLS_DIR}" \
+    --calls "${CALLS_STD}" \
+    --caller-name "${LABEL}" \
     --out-dir "${OUT_DIR}" \
     --purity "${EVAL_PURITY}" \
     --min-covered "${EVAL_MIN_COVERED:-0.5}" \

@@ -1,12 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=scDNA_sim_scan2
-#SBATCH --mem=32G
-#SBATCH --time=24:00:00
-#SBATCH --output=logs/scan2_scDNA_sim_%j.out
-#SBATCH --error=logs/scan2_scDNA_sim_%j.err
+#SBATCH --job-name=phase_scan2
+#SBATCH --mem=8G
+#SBATCH --time=72:00:00
+#SBATCH --output=logs/phase_scan2_%j.out
+#SBATCH --error=logs/phase_scan2_%j.err
 
-# Initialize conda
-source "./config.sh"
+# SCAN2 (GATK joint calling + Eagle phasing), run until phasing_gather, then
+# prepared for HiScanner. Submitted by run_pipeline.sh --phaser scan2.
+# This job is a driver: SCAN2 submits its own cluster jobs.
+# Output: ${PROJECT_DIR}/scan2_out (shapeit/phased_hets.vcf.gz marks completion)
+
+LOG_TAG=phase_scan2
+source "${CONFIG_FILE:-./config.sh}"
+source ./scripts/common.sh
 
 
 source ${CONDA}
@@ -37,8 +43,8 @@ add_rg() {
 }
 export -f add_rg
 
-{ find "$PROJECT_DIR/sim/bams" -maxdepth 1 -name '*.bam'
-  echo "$PROJECT_DIR/sim/bulk/bams/bulk.bam"; } \
+{ find "$CELL_BAM_DIR" -maxdepth 1 -name '*.bam'
+  echo "$BULK_BAM"; } \
   | xargs -P 8 -I{} bash -c 'add_rg {} 2'
 
 ###################################################
@@ -46,13 +52,12 @@ export -f add_rg
 
 
 
-OUT_DIR=$PROJECT_DIR/scan2_out
+OUT_DIR=$SCAN2_DIR
 scan2 -d "$OUT_DIR" init
 cd "$OUT_DIR"
 
 RES=${RESOURCES_DIR%/}
-BAM_DIR=$PROJECT_DIR/sim/bams
-BULK_BAM=$PROJECT_DIR/sim/bulk/bams/bulk.bam
+BAM_DIR=$CELL_BAM_DIR
 DBSNP=$RES/common_all_20180418.chrprefix.vcf
 EAGLE_GENMAP=$RES/genetic_map_hg38_withX.txt.gz
 EAGLE_PANEL_DIR=$RES/eagle_1000g_panel
@@ -90,7 +95,7 @@ scan2 validate
 mkdir -p logs
 scan2 run \
   --joblimit 5000 \
-  --cluster "sbatch --partition=mit_normal --cpus-per-task={threads} --mem={resources.mem_mb}M --time=72:00:00 --output=logs/%j.out" \
+  --cluster "sbatch --partition=${SLURM_PARTITION} --cpus-per-task={threads} --mem={resources.mem_mb}M --time=72:00:00 --output=logs/%j.out" \
   --snakemake-args ' --until phasing_gather --latency-wait 120'
 
 

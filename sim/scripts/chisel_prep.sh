@@ -1,15 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=scDNA_sim_chisel_prep
+#SBATCH --job-name=chisel_prep
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=16
 #SBATCH --time=24:00:00
-#SBATCH --output=logs/chisel_prep_scDNA_sim_%j.out
-#SBATCH --error=logs/chisel_prep_scDNA_sim_%j.err
+#SBATCH --output=logs/chisel_prep_%j.out
+#SBATCH --error=logs/chisel_prep_%j.err
 
+# Submitted by run_pipeline.sh --caller chisel (alongside the phaser job; it
+# only needs the cell BAMs). Skips itself if the barcoded BAM already exists.
+#
 # Convert the per-cell BAMs in ${PROJECT_DIR}/sim/bams into the single
 # barcoded BAM that CHISEL expects, using CHISEL's own `chisel_prep`.
 #
-# Outputs (in ${CHISEL_DIR}/prep):
+# Outputs (in ${PROJECT_DIR}/chisel/prep, shared by every phaser):
 #   barcodedcells.bam(.bai)   all cells, each read tagged with its cell barcode
 #   barcodedcells.info.tsv    CELL -> BARCODE map (use this to match CHISEL
 #                             results back to your simulated cells)
@@ -17,19 +20,19 @@
 #
 # All settings live in config.sh (CHISEL section).
 
-source "./config.sh"
+LOG_TAG=chisel_prep
+source "${CONFIG_FILE:-./config.sh}"
+source ./scripts/common.sh
 
 source ${CONDA}
 conda activate ${CHISEL_ENV}
 
 set -euo pipefail
 
-BAM_DIR="${PROJECT_DIR}/sim/bams"
-PREP_DIR="${CHISEL_DIR}/prep"
+BAM_DIR="${CELL_BAM_DIR}"
+PREP_DIR="${CHISEL_PREP_DIR}"
 OUT_BAM="barcodedcells.bam"
 
-die()  { echo "ERROR: $*" >&2; exit 1; }
-note() { echo "[chisel_prep_run] $*" >&2; }
 
 # ============================================================
 # Checks

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Compare HiScanner haplotype-specific copy numbers with simulated truth.
+Compare a caller's haplotype-specific copy numbers with simulated truth.
 
 Inputs
-  --truth      truth_hg38.tsv from lift_truth.py (aligned pieces only; no interpolation)
-  --calls-dir  HiScanner output/final_calls (per-cell <cell>.txt with CN_A, CN_B)
+  --truth        truth_hg38.tsv from lift_truth.py (aligned pieces only; no interpolation)
+  --calls        common calls table from standardize_calls.py
+                 (cell, chrom, start, end, CN_A, CN_B [, gamma, ...])
+  --caller-name  label used in plots and the summary (e.g. "CHISEL (ugp)")
 
 Truth for a bin (used only for scoring and the heatmaps; the track plots draw
 the truth at its own breakpoints)
@@ -17,9 +19,9 @@ the truth at its own breakpoints)
   both haplotypes. Unaligned gaps do not count against purity.
   Bins whose length-weighted mean truth differs from the majority truth by
   more than --max-mean-dev are also skipped: small high-CN pieces (ecDNA)
-  barely move the majority but dominate the read depth HiScanner measures.
+  barely move the majority but dominate the read depth callers measure.
 
-Haplotype orientation (which HiScanner haplotype is maternal)
+Haplotype orientation (which called haplotype, A or B, is maternal)
   actual  one assignment for all cells (--orientation global), or one per
           cell (--orientation cell). Phase switch errors count as errors.
   ideal   "ideal phasing interpretation": for every cell and bin separately,
@@ -44,7 +46,6 @@ Outputs (in --out-dir)
   event_counts.pdf        those counts along the chromosome
 """
 import argparse
-import glob
 import os
 import sys
 
@@ -167,21 +168,14 @@ def event_stats(true, pred, normal):
     return out
 
 
-def load_calls(path):
-    df = pd.read_csv(path, sep="\t")
-    if not {"CHROM", "START", "END", "CN_A", "CN_B"}.issubset(df.columns):
-        return None
-    df = df.dropna(subset=["CN_A", "CN_B"]).copy()
-    df["CHROM"] = df["CHROM"].map(norm_chrom)
-    return df
-
 
 # ---------------------------------------------------------------- main
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--truth", required=True)
-    ap.add_argument("--calls-dir", required=True)
+    ap.add_argument("--calls", required=True, help="common calls table from standardize_calls.py")
+    ap.add_argument("--caller-name", default="caller", help="label for plots and summary")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--purity", type=float, default=0.9)
     ap.add_argument("--min-covered", type=float, default=0.5, help="min fraction of a bin with aligned truth to score it")
@@ -196,6 +190,7 @@ def main():
                          "(small high-CN pieces such as ecDNA dominate read depth there)")
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
+    LABEL = a.caller_name
 
     truth = pd.read_csv(a.truth, sep="\t")
     truth["cell"] = truth["cell"].map(norm_cell)
@@ -203,18 +198,23 @@ def main():
     tgroups = {k: merge_equal_neighbours(g, a.merge_gap) for k, g in truth.groupby(["cell", "hap", "chrom"])}
     truth_cells = set(truth.cell)
 
-    files = sorted(f for f in glob.glob(os.path.join(a.calls_dir, "*.txt"))
-                   if not os.path.basename(f).endswith(("_seg.txt", "_seg_merged.txt", "_seg_initial_anno.txt")))
-    rows, no_calls, no_truth = [], [], []
-    for f in files:
-        cell = norm_cell(os.path.basename(f)[:-4])
-        calls = load_calls(f)
-        if calls is None or calls.empty:
-            no_calls.append(cell); continue
+    allcalls = pd.read_csv(a.calls, sep="\t")
+    missing = {"cell", "chrom", "start", "end", "CN_A", "CN_B"} - set(allcalls.columns)
+    if missing:
+        sys.exit(f"ERROR: {a.calls} lacks columns {sorted(missing)} (make it with standardize_calls.py)")
+    allcalls = allcalls.dropna(subset=["CN_A", "CN_B"])
+    allcalls["cell"] = allcalls["cell"].map(norm_cell)
+    allcalls["chrom"] = allcalls["chrom"].map(norm_chrom)
+    called = set(allcalls.cell)
+    no_calls = sorted(truth_cells - called)        # e.g. dropped by the caller's read filters
+    no_truth = sorted(called - truth_cells)
+    rows = []
+    for cell, calls in allcalls.groupby("cell"):
         if cell not in truth_cells:
-            no_truth.append(cell); continue
-        for chrom, cb in calls.groupby("CHROM"):
-            b = cb[["START", "END"]].values.astype(np.int64)
+            continue
+        for chrom, cb in calls.groupby("chrom"):
+            cb = cb.sort_values("start")
+            b = cb[["start", "end"]].values.astype(np.int64)
             m = bin_truth(b, tgroups.get((cell, "mat", chrom)))
             p = bin_truth(b, tgroups.get((cell, "pat", chrom)))
             rows.append(pd.DataFrame({
@@ -225,7 +225,7 @@ def main():
                 "gamma": cb["gamma"].values if "gamma" in cb.columns else np.nan,
             }))
     if not rows:
-        sys.exit("ERROR: no cells with both HiScanner calls and truth (check cell / chromosome names)")
+        sys.exit(f"ERROR: no cells with both {LABEL} calls and truth (check cell / chromosome names)")
     bins = pd.concat(rows, ignore_index=True)
 
     has_truth = bins.true_mat.notna() & bins.true_pat.notna()
@@ -273,7 +273,7 @@ def main():
     bins.to_csv(os.path.join(a.out_dir, "bins.tsv"), sep="\t", index=False)
 
     # ---------------- per-section (cn_mat column) scores ----------------
-    # Base-pair overlap between each lifted truth piece and HiScanner's bins;
+    # Base-pair overlap between each lifted truth piece and the caller's bins;
     # no bins are filtered here. A base counts once it has both truth and a call.
     if "seg" in truth.columns:
         recs = []
@@ -399,7 +399,8 @@ def main():
     n_bins, n_sc = len(bins), int(bins.scored.sum())
     summ = [
         f"cells evaluated: {bins.cell.nunique()}",
-        f"cells without HiScanner calls (skipped): {len(no_calls)}" + (f"  e.g. {no_calls[:5]}" if no_calls else ""),
+        f"caller: {LABEL}",
+        f"cells without {LABEL} calls (skipped): {len(no_calls)}" + (f"  e.g. {no_calls[:5]}" if no_calls else ""),
         f"cells with calls but no truth (skipped): {len(no_truth)}" + (f"  e.g. {no_truth[:5]}" if no_truth else ""),
         f"bins: {n_bins}   scored: {n_sc} ({n_sc / n_bins:.1%})",
         f"  not scored, straddle a true breakpoint: {int(bins.straddles.sum())}",
@@ -441,7 +442,7 @@ def main():
         f"ideal median {cells.acc_both_ideal.median():.3f}",
     ]
     if bins.gamma.notna().any():
-        summ.append(f"cells HiScanner called as WGD-scaled (gamma > 3): {(cells.gamma > 3).sum()}/{len(cells)}")
+        summ.append(f"cells {LABEL} called as WGD-scaled (gamma > 3): {(cells.gamma > 3).sum()}/{len(cells)}")
     text = "\n".join(summ)
     with open(os.path.join(a.out_dir, "summary.txt"), "w") as fh:
         fh.write(text + "\n")
@@ -479,7 +480,7 @@ def main():
                         tx, ty = step_xy(cc.start.values, cc.end.values, cc[f"{h}_true_{ev}"].values.astype(float), 1000)
                         px, py = step_xy(cc.start.values, cc.end.values, cc[f"{h}_pred{suffix}_{ev}"].values.astype(float), 1000)
                         ax.plot(tx, ty, color=colr, lw=3, alpha=0.35, label=f"true {ev}")
-                        ax.plot(px, py, color=colr, lw=1.2, label=f"HiScanner {ev}")
+                        ax.plot(px, py, color=colr, lw=1.2, label=f"{LABEL} {ev}")
                     ax.set_ylabel("cells", fontsize=8)
                     top = max(1, *(cc[f"{h}_{k}_{ev}"].max() for k in ("true", f"pred{suffix}") for ev in ("gain", "loss")))
                     ax.set_ylim(-0.02 * top, top * 1.15)        # headroom so lines at the max stay visible
@@ -513,7 +514,7 @@ def main():
         ax.plot([-0.5, cap + 0.5], [-0.5, cap + 0.5], color="red", lw=0.8, ls="--")
         # exact match uses real values, so e.g. 38 vs 40 is wrong even though both sit in the "cap+" box
         ax.set_title(f"{title}\nexact match {exact:.3f} (n={m.sum()})", fontsize=9)
-        ax.set_xlabel("true copy number"); ax.set_ylabel("HiScanner copy number")
+        ax.set_xlabel("true copy number"); ax.set_ylabel(f"{LABEL} copy number")
         return im
 
     def heat_page(pdf, df, panels, heading):
@@ -549,7 +550,7 @@ def main():
                       bins=[np.arange(0, cap + 0.26, 0.25), np.arange(-0.5, cap + 1)], norm=LogNorm(), cmap="viridis")
             ax.plot([0, cap], [0, cap], color="red", lw=0.8, ls="--")
             ax.set_xlabel("true CN (length-weighted mean over the bin's aligned truth)")
-            ax.set_ylabel("HiScanner CN"); ax.set_title(h)
+            ax.set_ylabel(f"{LABEL} CN"); ax.set_title(h)
         fig.suptitle("All bins - fractional truth for bins that straddle breakpoints", fontsize=10)
         pdf.savefig(fig); plt.close(fig)
 
@@ -578,7 +579,7 @@ def main():
                         px, py = step_xy(cb.start.values, cb.end.values, cb[pcol].values.astype(float), 1000)
                         ax.plot(tx, ys(ty), color="black", lw=3, alpha=0.45, solid_capstyle="butt", zorder=2,
                                 label="true")
-                        ax.plot(px, ys(py), color=col, lw=1.3, zorder=3, label="HiScanner")
+                        ax.plot(px, ys(py), color=col, lw=1.3, zorder=3, label=LABEL)
                         ys.decorate(ax)
                         if suffix == "_ideal":
                             fl = cb[cb.ideal_flipped]
@@ -590,7 +591,8 @@ def main():
                         ax.legend(loc="upper left", fontsize=6, ncol=3)
                         if j == 0:
                             ax.set_title(f"{cell}   both-hap acc {st.get('acc_both' + suffix, np.nan):.2f}   "
-                                         f"total acc {st.get('acc_total', np.nan):.2f}   gamma {st.gamma:.2f}   [{heading}]",
+                                         f"total acc {st.get('acc_total', np.nan):.2f}" +
+                                         (f"   gamma {st.gamma:.2f}" if pd.notna(st.gamma) else "") + f"   [{heading}]",
                                          fontsize=9, loc="left")
                         else:
                             ax.set_xlabel(f"{chrom} position (Mb, hg38)", fontsize=8)

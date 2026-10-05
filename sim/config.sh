@@ -1,6 +1,12 @@
 #!/bin/bash
 
-# config.sh
+# config.sh -- every setting lives here. Scripts source it when a job STARTS,
+# so edits affect queued and dependent jobs too.
+# Derived paths (where each stage reads/writes) are in scripts/common.sh:
+#   ${PROJECT_DIR}/sim/                      simulation
+#   ${PROJECT_DIR}/scan2_out/, ${UGP_DIR}/   phasers
+#   ${PROJECT_DIR}/<caller>/<phaser>/        callers (chisel/prep/ is shared)
+#   ${EVAL_DIR}/<phaser>_<caller>/           evaluation
 
 PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/proj_simple"
 CONDA=/n/fs/ragr-research/users/ky8418/miniconda3/etc/profile.d/conda.sh
@@ -32,8 +38,8 @@ WINDOWS_BED="/n/fs/ragr-data/users/ky8418/scDNA_sim/sim_resources/chr1_2000windo
 GENOME="hg38"
 CHR="chr1"
 
-# Clean chunk files
-SCAN2_CLEAN_CHUNK=true
+# Delete GATK per-chunk files once the merged VCF exists
+SCAN2_CLEAN_CHUNKS=true
 
 # ============================================================
 # SLURM 
@@ -46,7 +52,7 @@ SLURM_ACCOUNT="allcs"
 # HiScanner
 # ============================================================
 HS_ENV="${ENV}"                                   # change if HiScanner lives in its own env
-HS_DIR="${PROJECT_DIR}/hiscanner"                 # project dir: config.yaml, metadata.txt, output/
+# Run dir is ${PROJECT_DIR}/hiscanner/<phaser>/ (config.yaml, metadata.txt, output/)
 
 # Reference files
 FASTA_SPLIT_DIR="${RESOURCES_DIR%/}/hg38_split"   # must contain <chrom>.fasta (e.g. chr1.fasta)
@@ -116,12 +122,23 @@ UGP_EXECUTOR=local         # local = run inside this job (best for bulk mode); s
 # ============================================================
 # CHISEL
 # ============================================================
+# Barcoded BAM: ${PROJECT_DIR}/chisel/prep/ (shared). Runs: ${PROJECT_DIR}/chisel/<phaser>/
 CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/chisel"
-CHISEL_DIR="${PROJECT_DIR}/chisel"
 CHISEL_SEED=12
 CHISEL_JOBS=16
 CHISEL_BARCODE_LENGTH=12
 CHISEL_PREP_FORCE=false     # true = rebuild barcodedcells.bam even if it exists
+
+# chisel run (needs ${REF%.fasta}.dict next to the reference)
+CHISEL_CHROMS="${CHR}"      # space-separated, names as in the BAM
+CHISEL_BINSIZE="5Mb"        # CHISEL default; at ~0.1x a cell has ~3k reads per 5 Mb bin on chr1
+CHISEL_BLOCKSIZE="50kb"     # haplotype block size for BAF (CHISEL default; 0 disables)
+CHISEL_MINREADS=10000       # cells with fewer reads (MAPQ>=13, on CHISEL_CHROMS) are dropped.
+                            # CHISEL's default (300000) would drop every cell here: 0.1x on chr1
+                            # is ~165k reads per cell
+CHISEL_MAXPLOIDY=3          # base ploidies tried are 2, 4, ... up to this: 3 = diploid only
+                            # (no WGD, like HS_MAX_WGD=1); 4 = also test a WGD
+CHISEL_UPPERK=100           # max bin clusters
 
 
 
