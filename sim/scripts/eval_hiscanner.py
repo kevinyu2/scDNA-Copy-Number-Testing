@@ -34,8 +34,10 @@ Outputs (in --out-dir)
   confusion_all_cells.pdf true vs predicted per bin, all cells pooled (actual + ideal)
   bins.tsv, cells.tsv, summary.txt
   sections.tsv            per cn_mat column (and haplotype), pooled over cells:
-                          % of compared bases called correctly and mean (signed and
-                          absolute) CN difference, actual and ideal phasing
+                          % of compared bases called correctly, mean (signed and
+                          absolute) CN difference, % of bases that are gain/loss false
+                          positives / false negatives, and number of cells gained /
+                          lost / normal (true and called); actual and ideal phasing
   sections_by_cell.tsv    the same per cell x column
   bin_event_counts.tsv    per bin: number of cells with a gain / loss / normal state,
                           true and predicted, per haplotype and for total CN
@@ -292,10 +294,19 @@ def main():
                     rec[f"correct_bp{suffix}"] = (ov * (diff == 0)).sum(axis=1)
                     rec[f"diff_bp{suffix}"] = (ov * diff).sum(axis=1)
                     rec[f"absdiff_bp{suffix}"] = (ov * np.abs(diff)).sum(axis=1)
+                    # Gains/losses per haplotype: gain = CN > 1, loss = CN 0
+                    for ev, t_ev, p_ev in (("gain", cn > 1, pred > 1), ("loss", cn < 1, pred < 1)):
+                        rec[f"{ev}_fp_bp{suffix}"] = (ov * (~t_ev[:, None] & p_ev[None, :])).sum(axis=1)
+                        rec[f"{ev}_fn_bp{suffix}"] = (ov * (t_ev[:, None] & ~p_ev[None, :])).sum(axis=1)
+                        rec[f"pred{ev}_bp{suffix}"] = (ov * p_ev[None, :]).sum(axis=1)
+                    rec[f"prednormal_bp{suffix}"] = (ov * (pred == 1)[None, :]).sum(axis=1)
                 recs.append(rec)
         if recs:
             sec = pd.concat(recs, ignore_index=True)
-            sums = ["lifted_bp", "compared_bp"] + [f"{k}{x}" for x in ("", "_ideal") for k in ("correct_bp", "diff_bp", "absdiff_bp")]
+            sums = ["lifted_bp", "compared_bp"] + [
+                f"{k}{x}" for x in ("", "_ideal")
+                for k in ("correct_bp", "diff_bp", "absdiff_bp", "gain_fp_bp", "gain_fn_bp", "loss_fp_bp", "loss_fn_bp",
+                          "predgain_bp", "predloss_bp", "prednormal_bp")]
             # per cell x section
             byc = sec.groupby(["cell", "hap", "seg"], sort=False).agg({**{c: "sum" for c in sums}, "true_cn": "first"}).reset_index()
 
@@ -306,9 +317,23 @@ def main():
                     out[f"pct_correct{x}"] = 100 * df[f"correct_bp{x}"] / cmp_
                     out[f"mean_diff{x}"] = df[f"diff_bp{x}"] / cmp_
                     out[f"mean_abs_diff{x}"] = df[f"absdiff_bp{x}"] / cmp_
+                    for k in ("gain_fp", "gain_fn", "loss_fp", "loss_fn"):
+                        out[f"pct_{k}{x}"] = 100 * df[f"{k}_bp{x}"] / cmp_
                 return out
 
-            byc = pd.concat([byc[["cell", "hap", "seg", "true_cn", "lifted_bp", "compared_bp"]], rates(byc)], axis=1)
+            def state(cn):
+                return np.select([cn > 1, cn < 1], ["gain", "loss"], default="normal")
+
+            def pred_state(df, x):
+                st = np.array(["gain", "loss", "normal"])[
+                    np.argmax(df[[f"predgain_bp{x}", f"predloss_bp{x}", f"prednormal_bp{x}"]].values, axis=1)]
+                return np.where(df.compared_bp > 0, st, "na")
+
+            byc["true_state"] = state(byc.true_cn.values)
+            for x in ("", "_ideal"):
+                byc[f"pred_state{x}"] = pred_state(byc, x)   # majority call over the section's compared bases
+            byc = pd.concat([byc[["cell", "hap", "seg", "true_cn", "true_state", "pred_state", "pred_state_ideal",
+                                  "lifted_bp", "compared_bp"]], rates(byc)], axis=1)
             byc.to_csv(os.path.join(a.out_dir, "sections_by_cell.tsv"), sep="\t", index=False)
 
             # per section, pooled over cells (base-pair weighted)
@@ -318,13 +343,19 @@ def main():
             col["mean_true_cn"] = byc.groupby(["hap", "seg"], sort=False).true_cn.mean()
             col["true_cn_values"] = byc.groupby(["hap", "seg"], sort=False).true_cn.apply(
                 lambda v: ",".join(str(int(x)) for x in sorted(v.unique())))
+            # number of cells whose section is gained / lost / normal (true, and HiScanner's majority call)
+            gk = byc.groupby(["hap", "seg"], sort=False)
+            for src, lab in (("true_state", "true"), ("pred_state", "pred"), ("pred_state_ideal", "pred_ideal")):
+                for ev in ("gain", "loss", "normal"):
+                    col[f"n_cells_{lab}_{ev}"] = gk[src].apply(lambda v, ev=ev: int((v == ev).sum()))
             col = col.reset_index()
             se = col.seg.str.extract(r":(\d+)-(\d+)$").astype(np.int64)
             col["seg_len"] = se[1] - se[0] + 1
             col["lifted_bp_per_cell"] = col.lifted_bp / col.n_cells
             col["frac_compared"] = col.compared_bp / col.lifted_bp
+            ncols = [f"n_cells_{lab}_{ev}" for lab in ("true", "pred", "pred_ideal") for ev in ("gain", "loss", "normal")]
             col = pd.concat([col[["hap", "seg", "seg_len", "lifted_bp_per_cell", "frac_compared", "n_cells",
-                                  "mean_true_cn", "true_cn_values"]], rates(col)], axis=1)
+                                  "mean_true_cn", "true_cn_values"] + ncols], rates(col)], axis=1)
             col["seg_start"] = se[0]
             col = col.sort_values(["hap", "seg_start"]).drop(columns="seg_start")
             col.to_csv(os.path.join(a.out_dir, "sections.tsv"), sep="\t", index=False)
