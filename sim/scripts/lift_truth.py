@@ -15,8 +15,9 @@ genomes) are joined into one piece, so a line is not broken at every
 small indel.
 
 Output (0-based half-open hg38 coordinates), one row per aligned piece:
-    cell  hap  chrom  start  end  cn  orig_start  orig_end
-orig_start/orig_end are the piece's coordinates in the haplotype assembly.
+    cell  hap  chrom  start  end  cn  seg  orig_start  orig_end
+seg is the cn_mat column the piece came from; orig_start/orig_end are the
+piece's coordinates in the haplotype assembly.
 """
 import argparse
 import bisect
@@ -161,7 +162,7 @@ def read_truth(cn_mat_dir, hap):
         long["chrom"] = parts[0]
         long["seg_start"] = parts[1].astype(np.int64) - 1      # 1-based inclusive -> 0-based half-open
         long["seg_end"] = parts[2].astype(np.int64)
-        rows.append(long[["cell", "chrom", "seg_start", "seg_end", "cn"]])
+        rows.append(long[["cell", "chrom", "seg", "seg_start", "seg_end", "cn"]])
     out = pd.concat(rows, ignore_index=True)
     print(f"[lift_truth] {hap}: {len(files)} file(s), {out.cell.nunique()} cells", file=sys.stderr)
     return out
@@ -198,7 +199,7 @@ def main():
         res = truth.merge(lf, on=["seg_start", "seg_end"])
         res["hap"] = hap
         res["chrom"] = a.target_chrom
-        out.append(res[["cell", "hap", "chrom", "start", "end", "cn", "orig_start", "orig_end"]])
+        out.append(res[["cell", "hap", "chrom", "start", "end", "cn", "seg", "orig_start", "orig_end"]])
 
     res = pd.concat(out, ignore_index=True).sort_values(["cell", "hap", "start"])
     res.to_csv(a.out, sep="\t", index=False)

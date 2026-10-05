@@ -33,6 +33,10 @@ Outputs (in --out-dir)
   per_cell_tracks_ideal.pdf same, ideal phasing interpretation (purple ticks = A/B swapped)
   confusion_all_cells.pdf true vs predicted per bin, all cells pooled (actual + ideal)
   bins.tsv, cells.tsv, summary.txt
+  sections.tsv            per cn_mat column (and haplotype), pooled over cells:
+                          % of compared bases called correctly and mean (signed and
+                          absolute) CN difference, actual and ideal phasing
+  sections_by_cell.tsv    the same per cell x column
 """
 import argparse
 import glob
@@ -249,6 +253,68 @@ def main():
     bins["true_minor"] = bins[["true_mat", "true_pat"]].min(axis=1)
     bins["pred_minor"] = bins[["pred_mat", "pred_pat"]].min(axis=1)
     bins.to_csv(os.path.join(a.out_dir, "bins.tsv"), sep="\t", index=False)
+
+    # ---------------- per-section (cn_mat column) scores ----------------
+    # Base-pair overlap between each lifted truth piece and HiScanner's bins;
+    # no bins are filtered here. A base counts once it has both truth and a call.
+    if "seg" in truth.columns:
+        recs = []
+        for (cell, chrom), cb in bins.groupby(["cell", "chrom"]):
+            bs, be = cb.start.values, cb.end.values
+            for h in ("mat", "pat"):
+                tg = truth[(truth.cell == cell) & (truth.hap == h) & (truth.chrom == chrom)]
+                if tg.empty:
+                    continue
+                ts, te, cn = tg.start.values, tg.end.values, tg.cn.values.astype(float)
+                ov = np.clip(np.minimum(te[:, None], be[None, :]) - np.maximum(ts[:, None], bs[None, :]), 0, None).astype(float)
+                rec = pd.DataFrame({"cell": cell, "hap": h, "seg": tg.seg.values,
+                                    "lifted_bp": (te - ts).astype(float), "true_cn": cn,
+                                    "compared_bp": ov.sum(axis=1)})
+                for suffix in ("", "_ideal"):
+                    pred = cb[f"pred_{h}{suffix}"].values.astype(float)
+                    diff = pred[None, :] - cn[:, None]
+                    rec[f"correct_bp{suffix}"] = (ov * (diff == 0)).sum(axis=1)
+                    rec[f"diff_bp{suffix}"] = (ov * diff).sum(axis=1)
+                    rec[f"absdiff_bp{suffix}"] = (ov * np.abs(diff)).sum(axis=1)
+                recs.append(rec)
+        if recs:
+            sec = pd.concat(recs, ignore_index=True)
+            sums = ["lifted_bp", "compared_bp"] + [f"{k}{x}" for x in ("", "_ideal") for k in ("correct_bp", "diff_bp", "absdiff_bp")]
+            # per cell x section
+            byc = sec.groupby(["cell", "hap", "seg"], sort=False).agg({**{c: "sum" for c in sums}, "true_cn": "first"}).reset_index()
+
+            def rates(df):
+                cmp_ = df.compared_bp.where(df.compared_bp > 0)
+                out = pd.DataFrame(index=df.index)
+                for x in ("", "_ideal"):
+                    out[f"pct_correct{x}"] = 100 * df[f"correct_bp{x}"] / cmp_
+                    out[f"mean_diff{x}"] = df[f"diff_bp{x}"] / cmp_
+                    out[f"mean_abs_diff{x}"] = df[f"absdiff_bp{x}"] / cmp_
+                return out
+
+            byc = pd.concat([byc[["cell", "hap", "seg", "true_cn", "lifted_bp", "compared_bp"]], rates(byc)], axis=1)
+            byc.to_csv(os.path.join(a.out_dir, "sections_by_cell.tsv"), sep="\t", index=False)
+
+            # per section, pooled over cells (base-pair weighted)
+            agg = sec.groupby(["hap", "seg"], sort=False)
+            col = agg[sums].sum()
+            col["n_cells"] = agg.cell.nunique()
+            col["mean_true_cn"] = byc.groupby(["hap", "seg"], sort=False).true_cn.mean()
+            col["true_cn_values"] = byc.groupby(["hap", "seg"], sort=False).true_cn.apply(
+                lambda v: ",".join(str(int(x)) for x in sorted(v.unique())))
+            col = col.reset_index()
+            se = col.seg.str.extract(r":(\d+)-(\d+)$").astype(np.int64)
+            col["seg_len"] = se[1] - se[0] + 1
+            col["lifted_bp_per_cell"] = col.lifted_bp / col.n_cells
+            col["frac_compared"] = col.compared_bp / col.lifted_bp
+            col = pd.concat([col[["hap", "seg", "seg_len", "lifted_bp_per_cell", "frac_compared", "n_cells",
+                                  "mean_true_cn", "true_cn_values"]], rates(col)], axis=1)
+            col["seg_start"] = se[0]
+            col = col.sort_values(["hap", "seg_start"]).drop(columns="seg_start")
+            col.to_csv(os.path.join(a.out_dir, "sections.tsv"), sep="\t", index=False)
+    else:
+        print("[eval] truth file has no 'seg' column (made by an older lift_truth.py); skipping per-section scores",
+              file=sys.stderr)
 
     # ---------------- metrics ----------------
     def metrics(p):
