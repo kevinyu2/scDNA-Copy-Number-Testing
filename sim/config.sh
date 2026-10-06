@@ -8,7 +8,7 @@
 #   ${PROJECT_DIR}/<caller>/<phaser>/        callers (chisel/prep/ is shared)
 #   ${EVAL_DIR}/<phaser>_<caller>/           evaluation
 
-PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/proj_simple"
+PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/ref_proj_simple"
 CONDA=/n/fs/ragr-research/users/ky8418/miniconda3/etc/profile.d/conda.sh
 ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/scdna_pipeline"
 

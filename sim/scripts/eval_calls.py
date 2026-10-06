@@ -46,9 +46,9 @@ Outputs (in --out-dir)
   bins.tsv, cells.tsv, summary.txt
   sections.tsv            per cn_mat column (and haplotype), pooled over cells:
                           % of compared bases called correctly, mean (signed and
-                          absolute) CN difference, % of bases that are gain/loss false
-                          positives / false negatives, and number of cells gained /
-                          lost / normal (true and called); actual, per-bin and allele-specific
+                          absolute) CN difference, and % of bases that are TP / TN /
+                          FP / FN for gain, normal and loss (one-vs-rest);
+                          actual, per-bin and allele-specific
   sections_by_cell.tsv    the same per cell x column
   bin_event_counts.tsv    per bin: number of cells with a gain / loss / normal state,
                           true and predicted, per haplotype and for total CN
@@ -164,14 +164,24 @@ class YScale:
                     fontsize=6, va="center", ha="left", color="grey")
 
 
+EVENTS = ("gain", "normal", "loss")
+CONF = ("tp", "tn", "fp", "fn")
+
+
+def event_masks(x, normal):
+    """gain = CN > normal, normal = CN == normal, loss = CN < normal."""
+    return {"gain": x > normal, "normal": x == normal, "loss": x < normal}
+
+
 def event_stats(true, pred, normal):
-    """Gain = CN > normal, loss = CN < normal. Returns TP/FP/FN counts per event."""
+    """One-vs-rest TP/TN/FP/FN counts for each of gain / normal / loss."""
     ok = true.notna() & pred.notna()
-    t, p = true[ok], pred[ok]
+    mt, mp = event_masks(true[ok], normal), event_masks(pred[ok], normal)
     out = {}
-    for ev, ft in (("gain", lambda x: x > normal), ("loss", lambda x: x < normal)):
-        tt, pp = ft(t), ft(p)
+    for ev in EVENTS:
+        tt, pp = mt[ev], mp[ev]
         out[f"{ev}_tp"] = int((tt & pp).sum())
+        out[f"{ev}_tn"] = int((~tt & ~pp).sum())
         out[f"{ev}_fp"] = int((~tt & pp).sum())
         out[f"{ev}_fn"] = int((tt & ~pp).sum())
     return out
@@ -315,19 +325,20 @@ def main():
                     rec[f"correct_bp{suffix}"] = (ov * (diff == 0)).sum(axis=1)
                     rec[f"diff_bp{suffix}"] = (ov * diff).sum(axis=1)
                     rec[f"absdiff_bp{suffix}"] = (ov * np.abs(diff)).sum(axis=1)
-                    # Gains/losses per haplotype: gain = CN > 1, loss = CN 0
-                    for ev, t_ev, p_ev in (("gain", cn > 1, pred > 1), ("loss", cn < 1, pred < 1)):
-                        rec[f"{ev}_fp_bp{suffix}"] = (ov * (~t_ev[:, None] & p_ev[None, :])).sum(axis=1)
-                        rec[f"{ev}_fn_bp{suffix}"] = (ov * (t_ev[:, None] & ~p_ev[None, :])).sum(axis=1)
-                        rec[f"pred{ev}_bp{suffix}"] = (ov * p_ev[None, :]).sum(axis=1)
-                    rec[f"prednormal_bp{suffix}"] = (ov * (pred == 1)[None, :]).sum(axis=1)
+                    # Per haplotype, one-vs-rest: gain = CN > 1, normal = CN 1, loss = CN 0
+                    mt, mp = event_masks(cn, 1), event_masks(pred, 1)
+                    for ev in EVENTS:
+                        t_ev, p_ev = mt[ev][:, None], mp[ev][None, :]
+                        rec[f"{ev}_tp_bp{suffix}"] = (ov * (t_ev & p_ev)).sum(axis=1)
+                        rec[f"{ev}_tn_bp{suffix}"] = (ov * (~t_ev & ~p_ev)).sum(axis=1)
+                        rec[f"{ev}_fp_bp{suffix}"] = (ov * (~t_ev & p_ev)).sum(axis=1)
+                        rec[f"{ev}_fn_bp{suffix}"] = (ov * (t_ev & ~p_ev)).sum(axis=1)
                 recs.append(rec)
         if recs:
             sec = pd.concat(recs, ignore_index=True)
             sums = ["lifted_bp", "compared_bp"] + [
                 f"{k}{x}" for x in ("", "_bin", "_ideal")
-                for k in ("correct_bp", "diff_bp", "absdiff_bp", "gain_fp_bp", "gain_fn_bp", "loss_fp_bp", "loss_fn_bp",
-                          "predgain_bp", "predloss_bp", "prednormal_bp")]
+                for k in ["correct_bp", "diff_bp", "absdiff_bp"] + [f"{ev}_{c}_bp" for ev in EVENTS for c in CONF]]
             # per cell x section
             byc = sec.groupby(["cell", "hap", "seg"], sort=False).agg({**{c: "sum" for c in sums}, "true_cn": "first"}).reset_index()
 
@@ -338,23 +349,12 @@ def main():
                     out[f"pct_correct{x}"] = 100 * df[f"correct_bp{x}"] / cmp_
                     out[f"mean_diff{x}"] = df[f"diff_bp{x}"] / cmp_
                     out[f"mean_abs_diff{x}"] = df[f"absdiff_bp{x}"] / cmp_
-                    for k in ("gain_fp", "gain_fn", "loss_fp", "loss_fn"):
-                        out[f"pct_{k}{x}"] = 100 * df[f"{k}_bp{x}"] / cmp_
+                    for ev in EVENTS:
+                        for c in CONF:
+                            out[f"pct_{ev}_{c}{x}"] = 100 * df[f"{ev}_{c}_bp{x}"] / cmp_
                 return out
 
-            def state(cn):
-                return np.select([cn > 1, cn < 1], ["gain", "loss"], default="normal")
-
-            def pred_state(df, x):
-                st = np.array(["gain", "loss", "normal"])[
-                    np.argmax(df[[f"predgain_bp{x}", f"predloss_bp{x}", f"prednormal_bp{x}"]].values, axis=1)]
-                return np.where(df.compared_bp > 0, st, "na")
-
-            byc["true_state"] = state(byc.true_cn.values)
-            for x in ("", "_bin", "_ideal"):
-                byc[f"pred_state{x}"] = pred_state(byc, x)   # majority call over the section's compared bases
-            byc = pd.concat([byc[["cell", "hap", "seg", "true_cn", "true_state", "pred_state", "pred_state_bin", "pred_state_ideal",
-                                  "lifted_bp", "compared_bp"]], rates(byc)], axis=1)
+            byc = pd.concat([byc[["cell", "hap", "seg", "true_cn", "lifted_bp", "compared_bp"]], rates(byc)], axis=1)
             byc.to_csv(os.path.join(a.out_dir, "sections_by_cell.tsv"), sep="\t", index=False)
 
             # per section, pooled over cells (base-pair weighted)
@@ -364,20 +364,13 @@ def main():
             col["mean_true_cn"] = byc.groupby(["hap", "seg"], sort=False).true_cn.mean()
             col["true_cn_values"] = byc.groupby(["hap", "seg"], sort=False).true_cn.apply(
                 lambda v: ",".join(str(int(x)) for x in sorted(v.unique())))
-            # number of cells whose section is gained / lost / normal (true, and the caller's majority call)
-            gk = byc.groupby(["hap", "seg"], sort=False)
-            for src, lab in (("true_state", "true"), ("pred_state", "pred"), ("pred_state_bin", "pred_bin"),
-                             ("pred_state_ideal", "pred_ideal")):
-                for ev in ("gain", "loss", "normal"):
-                    col[f"n_cells_{lab}_{ev}"] = gk[src].apply(lambda v, ev=ev: int((v == ev).sum()))
             col = col.reset_index()
             se = col.seg.str.extract(r":(\d+)-(\d+)$").astype(np.int64)
             col["seg_len"] = se[1] - se[0] + 1
             col["lifted_bp_per_cell"] = col.lifted_bp / col.n_cells
             col["frac_compared"] = col.compared_bp / col.lifted_bp
-            ncols = [f"n_cells_{lab}_{ev}" for lab in ("true", "pred", "pred_bin", "pred_ideal") for ev in ("gain", "loss", "normal")]
             col = pd.concat([col[["hap", "seg", "seg_len", "lifted_bp_per_cell", "frac_compared", "n_cells",
-                                  "mean_true_cn", "true_cn_values"] + ncols], rates(col)], axis=1)
+                                  "mean_true_cn", "true_cn_values"]], rates(col)], axis=1)
             col["seg_start"] = se[0]
             col = col.sort_values(["hap", "seg_start"]).drop(columns="seg_start")
             col.to_csv(os.path.join(a.out_dir, "sections.tsv"), sep="\t", index=False)
@@ -387,7 +380,7 @@ def main():
 
     # ---------------- metrics ----------------
     def hap_events(p, suffix):
-        """Gains/losses per haplotype (gain = CN > 1, loss = CN 0), mat and pat pooled."""
+        """Gain / normal / loss TP/TN/FP/FN per haplotype (gain = CN > 1, normal = 1, loss = 0), mat and pat pooled."""
         tr = pd.concat([p.true_mat, p.true_pat], ignore_index=True)
         pr = pd.concat([p[f"pred_mat{suffix}"], p[f"pred_pat{suffix}"]], ignore_index=True)
         return {f"hap_{k}{suffix}": v for k, v in event_stats(tr, pr, 1).items()}
@@ -450,28 +443,30 @@ def main():
         "  (actual -> ideal phasing = cost of phase switch errors; ideal phasing -> allele-specific = events",
         "   put on different haplotypes in different cells, which phasing cannot fix)",
         "",
-        "gains / losses over scored bins (haplotype: gain = CN > 1, loss = CN 0; total: gain > 2, loss < 2)",
-        f"  {'':34s}{'TP':>9s}{'FP':>9s}{'FN':>9s}{'precision':>11s}{'recall':>8s}",
+        "gain / normal / loss over scored bins, one-vs-rest (haplotype: gain = CN > 1, normal = 1, loss = 0;",
+        "total: gain > 2, normal = 2, loss < 2). Counts are cell x bin pairs.",
     ]
     scored_bins = bins[bins.scored]
 
     def ev_line(label, d, ev):
-        tp, fp, fn = d[f"{ev}_tp"], d[f"{ev}_fp"], d[f"{ev}_fn"]
+        tp, tn, fp, fn = (d[f"{ev}_{c}"] for c in CONF)
         prec = tp / (tp + fp) if tp + fp else float("nan")
         rec = tp / (tp + fn) if tp + fn else float("nan")
-        return f"  {label:34s}{tp:9d}{fp:9d}{fn:9d}{prec:11.3f}{rec:8.3f}"
+        spec = tn / (tn + fp) if tn + fp else float("nan")
+        return f"    {label:18s}{tp:10d}{tn:10d}{fp:10d}{fn:10d}{prec:11.3f}{rec:8.3f}{spec:13.3f}"
 
-    for lab, t_, p_, nrm in (("maternal", "true_mat", "pred_mat", 1), ("paternal", "true_pat", "pred_pat", 1),
-                             ("maternal (ideal phasing)", "true_mat", "pred_mat_bin", 1),
-                             ("paternal (ideal phasing)", "true_pat", "pred_pat_bin", 1),
-                             ("maternal (allele-specific)", "true_mat", "pred_mat_ideal", 1),
-                             ("paternal (allele-specific)", "true_pat", "pred_pat_ideal", 1),
-                             ("total CN", "true_total", "pred_total", 2)):
+    head = f"    {'':18s}{'TP':>10s}{'TN':>10s}{'FP':>10s}{'FN':>10s}{'precision':>11s}{'recall':>8s}{'specificity':>13s}"
+    blocks = [(f"{lvl} - {hname}", t_, f"pred_{h}{sfx}", 1)
+              for lvl, sfx in (("actual", ""), ("ideal phasing (per bin)", "_bin"),
+                               ("allele-specific (per cell x bin)", "_ideal"))
+              for h, hname, t_ in (("mat", "maternal", "true_mat"), ("pat", "paternal", "true_pat"))]
+    blocks.append(("total CN (orientation-free)", "true_total", "pred_total", 2))
+    for title, t_, p_, nrm in blocks:
         d = event_stats(scored_bins[t_], scored_bins[p_], nrm)
-        summ.append(ev_line(f"{lab} gain", d, "gain"))
-        summ.append(ev_line(f"{lab} loss", d, "loss"))
+        summ += ["", f"  {title}", head] + [ev_line(ev, d, ev) for ev in EVENTS]
     summ += [
-        "  (TP/FP/FN count bins; FP = called but not true, FN = true but not called)",
+        "",
+        "  (one-vs-rest per class: FP = called this class but truth is not; FN = truth is this class but not called)",
         "",
         f"per-cell both-haplotype accuracy: actual median {cells.acc_both.median():.3f}, "
         f"ideal phasing median {cells.acc_both_bin.median():.3f}, "
