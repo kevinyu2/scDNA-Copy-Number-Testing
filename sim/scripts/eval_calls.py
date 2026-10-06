@@ -24,22 +24,31 @@ the truth at its own breakpoints)
 Haplotype orientation (which called haplotype, A or B, is maternal)
   actual  one assignment for all cells (--orientation global), or one per
           cell (--orientation cell). Phase switch errors count as errors.
-  ideal   "ideal phasing interpretation": for every cell and bin separately,
-          whichever assignment gives the smaller |mat diff| + |pat diff|.
-          Upper bound on what the same calls could score if every phase
-          switch were corrected.
+  bin     "ideal phasing": one assignment per genomic bin, shared by all cells,
+          whichever gives the smaller |mat diff| + |pat diff| summed over cells.
+          Germline phase comes from the bulk and is read the same way in every
+          cell, so a phase switch error flips a bin in all cells at once; this is
+          what the same calls would score with every switch corrected.
+          (Column suffix _bin.)
+  ideal   "allele-specific": for every cell and bin separately, whichever
+          assignment fits better. With two haplotypes this equals comparing the
+          sorted (major, minor) pairs, i.e. allele-specific CN scoring. It also
+          forgives events put on the wrong haplotype in some cells, so it is an
+          upper bound, not a phasing correction. (Column suffix _ideal, kept for
+          compatibility.)
 
 Outputs (in --out-dir)
   per_cell_tracks.pdf       maternal/paternal predicted vs true (actual orientation);
                             shows all data, scoring is not marked
-  per_cell_tracks_ideal.pdf same, ideal phasing interpretation (purple ticks = A/B swapped)
-  confusion_all_cells.pdf true vs predicted per bin, all cells pooled (actual + ideal)
+  per_cell_tracks_bin.pdf   same, ideal phasing (per bin; purple ticks = bin flipped vs actual)
+  per_cell_tracks_ideal.pdf same, allele-specific (purple ticks = A/B swapped)
+  confusion_all_cells.pdf true vs predicted per bin, all cells pooled (all three levels)
   bins.tsv, cells.tsv, summary.txt
   sections.tsv            per cn_mat column (and haplotype), pooled over cells:
                           % of compared bases called correctly, mean (signed and
                           absolute) CN difference, % of bases that are gain/loss false
                           positives / false negatives, and number of cells gained /
-                          lost / normal (true and called); actual and ideal phasing
+                          lost / normal (true and called); actual, per-bin and allele-specific
   sections_by_cell.tsv    the same per cell x column
   bin_event_counts.tsv    per bin: number of cells with a gain / loss / normal state,
                           true and predicted, per haplotype and for total CN
@@ -255,7 +264,19 @@ def main():
     bins["pred_mat"] = np.where(bins.swap, bins.CN_B, bins.CN_A)
     bins["pred_pat"] = np.where(bins.swap, bins.CN_A, bins.CN_B)
 
-    # ---------------- ideal phasing interpretation ----------------
+    # ---------------- ideal phasing: one orientation per genomic bin ----------------
+    # Chosen from the raw A/B calls (independent of --orientation), summing the error
+    # over every cell; ties keep each cell's actual orientation.
+    dk = (bins.CN_A - bins.true_mat).abs().fillna(0) + (bins.CN_B - bins.true_pat).abs().fillna(0)
+    df_ = (bins.CN_B - bins.true_mat).abs().fillna(0) + (bins.CN_A - bins.true_pat).abs().fillna(0)
+    bkey = [bins.chrom, bins.start, bins.end]
+    sk, sf = dk.groupby(bkey).transform("sum"), df_.groupby(bkey).transform("sum")
+    swap_bin = np.where(sf < sk, True, np.where(sf > sk, False, bins.swap.values))
+    bins["bin_flipped"] = swap_bin != bins.swap.values          # differs from the actual orientation
+    bins["pred_mat_bin"] = np.where(swap_bin, bins.CN_B, bins.CN_A)
+    bins["pred_pat_bin"] = np.where(swap_bin, bins.CN_A, bins.CN_B)
+
+    # ---------------- allele-specific: one orientation per cell x bin ----------------
     # A haplotype with no aligned truth in the bin contributes nothing, so the
     # other haplotype still decides; ties (and no truth at all) keep the actual orientation.
     d_keep = (bins.pred_mat - bins.true_mat).abs().fillna(0) + (bins.pred_pat - bins.true_pat).abs().fillna(0)
@@ -288,7 +309,7 @@ def main():
                 rec = pd.DataFrame({"cell": cell, "hap": h, "seg": tg.seg.values,
                                     "lifted_bp": (te - ts).astype(float), "true_cn": cn,
                                     "compared_bp": ov.sum(axis=1)})
-                for suffix in ("", "_ideal"):
+                for suffix in ("", "_bin", "_ideal"):
                     pred = cb[f"pred_{h}{suffix}"].values.astype(float)
                     diff = pred[None, :] - cn[:, None]
                     rec[f"correct_bp{suffix}"] = (ov * (diff == 0)).sum(axis=1)
@@ -304,7 +325,7 @@ def main():
         if recs:
             sec = pd.concat(recs, ignore_index=True)
             sums = ["lifted_bp", "compared_bp"] + [
-                f"{k}{x}" for x in ("", "_ideal")
+                f"{k}{x}" for x in ("", "_bin", "_ideal")
                 for k in ("correct_bp", "diff_bp", "absdiff_bp", "gain_fp_bp", "gain_fn_bp", "loss_fp_bp", "loss_fn_bp",
                           "predgain_bp", "predloss_bp", "prednormal_bp")]
             # per cell x section
@@ -313,7 +334,7 @@ def main():
             def rates(df):
                 cmp_ = df.compared_bp.where(df.compared_bp > 0)
                 out = pd.DataFrame(index=df.index)
-                for x in ("", "_ideal"):
+                for x in ("", "_bin", "_ideal"):
                     out[f"pct_correct{x}"] = 100 * df[f"correct_bp{x}"] / cmp_
                     out[f"mean_diff{x}"] = df[f"diff_bp{x}"] / cmp_
                     out[f"mean_abs_diff{x}"] = df[f"absdiff_bp{x}"] / cmp_
@@ -330,9 +351,9 @@ def main():
                 return np.where(df.compared_bp > 0, st, "na")
 
             byc["true_state"] = state(byc.true_cn.values)
-            for x in ("", "_ideal"):
+            for x in ("", "_bin", "_ideal"):
                 byc[f"pred_state{x}"] = pred_state(byc, x)   # majority call over the section's compared bases
-            byc = pd.concat([byc[["cell", "hap", "seg", "true_cn", "true_state", "pred_state", "pred_state_ideal",
+            byc = pd.concat([byc[["cell", "hap", "seg", "true_cn", "true_state", "pred_state", "pred_state_bin", "pred_state_ideal",
                                   "lifted_bp", "compared_bp"]], rates(byc)], axis=1)
             byc.to_csv(os.path.join(a.out_dir, "sections_by_cell.tsv"), sep="\t", index=False)
 
@@ -345,7 +366,8 @@ def main():
                 lambda v: ",".join(str(int(x)) for x in sorted(v.unique())))
             # number of cells whose section is gained / lost / normal (true, and the caller's majority call)
             gk = byc.groupby(["hap", "seg"], sort=False)
-            for src, lab in (("true_state", "true"), ("pred_state", "pred"), ("pred_state_ideal", "pred_ideal")):
+            for src, lab in (("true_state", "true"), ("pred_state", "pred"), ("pred_state_bin", "pred_bin"),
+                             ("pred_state_ideal", "pred_ideal")):
                 for ev in ("gain", "loss", "normal"):
                     col[f"n_cells_{lab}_{ev}"] = gk[src].apply(lambda v, ev=ev: int((v == ev).sum()))
             col = col.reset_index()
@@ -353,7 +375,7 @@ def main():
             col["seg_len"] = se[1] - se[0] + 1
             col["lifted_bp_per_cell"] = col.lifted_bp / col.n_cells
             col["frac_compared"] = col.compared_bp / col.lifted_bp
-            ncols = [f"n_cells_{lab}_{ev}" for lab in ("true", "pred", "pred_ideal") for ev in ("gain", "loss", "normal")]
+            ncols = [f"n_cells_{lab}_{ev}" for lab in ("true", "pred", "pred_bin", "pred_ideal") for ev in ("gain", "loss", "normal")]
             col = pd.concat([col[["hap", "seg", "seg_len", "lifted_bp_per_cell", "frac_compared", "n_cells",
                                   "mean_true_cn", "true_cn_values"] + ncols], rates(col)], axis=1)
             col["seg_start"] = se[0]
@@ -377,15 +399,21 @@ def main():
             "acc_mat": np.mean(p.pred_mat == p.true_mat),
             "acc_pat": np.mean(p.pred_pat == p.true_pat),
             "acc_both": np.mean((p.pred_mat == p.true_mat) & (p.pred_pat == p.true_pat)),
+            "acc_mat_bin": np.mean(p.pred_mat_bin == p.true_mat),
+            "acc_pat_bin": np.mean(p.pred_pat_bin == p.true_pat),
+            "acc_both_bin": np.mean((p.pred_mat_bin == p.true_mat) & (p.pred_pat_bin == p.true_pat)),
             "acc_mat_ideal": np.mean(p.pred_mat_ideal == p.true_mat),
             "acc_pat_ideal": np.mean(p.pred_pat_ideal == p.true_pat),
             "acc_both_ideal": np.mean((p.pred_mat_ideal == p.true_mat) & (p.pred_pat_ideal == p.true_pat)),
             "acc_total": np.mean(p.pred_total == p.true_total),
             "mae_hap": np.mean((p.pred_mat - p.true_mat).abs() + (p.pred_pat - p.true_pat).abs()) / 2,
+            "mae_hap_bin": np.mean((p.pred_mat_bin - p.true_mat).abs() + (p.pred_pat_bin - p.true_pat).abs()) / 2,
             "mae_hap_ideal": np.mean((p.pred_mat_ideal - p.true_mat).abs() + (p.pred_pat_ideal - p.true_pat).abs()) / 2,
             "mae_total": np.mean((p.pred_total - p.true_total).abs()),
+            "frac_bins_flipped_bin": np.mean(p.bin_flipped),
             "frac_bins_flipped_ideal": np.mean(p.ideal_flipped),
             **hap_events(p, ""),
+            **hap_events(p, "_bin"),
             **hap_events(p, "_ideal"),
             **{f"total_{k}": v for k, v in event_stats(p.true_total, p.pred_total, 2).items()},
         }
@@ -408,14 +436,19 @@ def main():
         f"  not scored, < {a.min_covered:.0%} of bin has aligned truth: {int((has_truth & ~covered_ok & ~straddles & ~mean_dev).sum() + (~has_truth).sum())}",
         orient_note,
         "",
-        "accuracy over scored bins (exact match)        actual    ideal phasing",
-        f"  maternal                                      {mt['acc_mat']:.3f}     {mt['acc_mat_ideal']:.3f}",
-        f"  paternal                                      {mt['acc_pat']:.3f}     {mt['acc_pat_ideal']:.3f}",
-        f"  both haplotypes                               {mt['acc_both']:.3f}     {mt['acc_both_ideal']:.3f}",
-        f"  mean |error| per haplotype                    {mt['mae_hap']:.3f}     {mt['mae_hap_ideal']:.3f}",
+        "accuracy over scored bins (exact match)        actual    ideal phasing   allele-specific",
+        "                                                          (per bin)       (per cell x bin)",
+        f"  maternal                                      {mt['acc_mat']:.3f}     {mt['acc_mat_bin']:.3f}           {mt['acc_mat_ideal']:.3f}",
+        f"  paternal                                      {mt['acc_pat']:.3f}     {mt['acc_pat_bin']:.3f}           {mt['acc_pat_ideal']:.3f}",
+        f"  both haplotypes                               {mt['acc_both']:.3f}     {mt['acc_both_bin']:.3f}           {mt['acc_both_ideal']:.3f}",
+        f"  mean |error| per haplotype                    {mt['mae_hap']:.3f}     {mt['mae_hap_bin']:.3f}           {mt['mae_hap_ideal']:.3f}",
+        f"  scored cell-bins re-oriented vs actual                  {mt['frac_bins_flipped_bin']:.3f}           {mt['frac_bins_flipped_ideal']:.3f}",
         f"  total CN (orientation-free)                   {mt['acc_total']:.3f}",
         f"  total CN mean |error|                         {mt['mae_total']:.3f}",
-        f"  bins the ideal interpretation flips           {mt['frac_bins_flipped_ideal']:.3f}",
+        f"  genomic bins whose per-bin orientation differs from actual: "
+        f"{bins[bins.bin_flipped].groupby(['chrom', 'start', 'end']).ngroups}/{bins.groupby(['chrom', 'start', 'end']).ngroups}",
+        "  (actual -> ideal phasing = cost of phase switch errors; ideal phasing -> allele-specific = events",
+        "   put on different haplotypes in different cells, which phasing cannot fix)",
         "",
         "gains / losses over scored bins (haplotype: gain = CN > 1, loss = CN 0; total: gain > 2, loss < 2)",
         f"  {'':34s}{'TP':>9s}{'FP':>9s}{'FN':>9s}{'precision':>11s}{'recall':>8s}",
@@ -429,8 +462,10 @@ def main():
         return f"  {label:34s}{tp:9d}{fp:9d}{fn:9d}{prec:11.3f}{rec:8.3f}"
 
     for lab, t_, p_, nrm in (("maternal", "true_mat", "pred_mat", 1), ("paternal", "true_pat", "pred_pat", 1),
-                             ("maternal (ideal phasing)", "true_mat", "pred_mat_ideal", 1),
-                             ("paternal (ideal phasing)", "true_pat", "pred_pat_ideal", 1),
+                             ("maternal (ideal phasing)", "true_mat", "pred_mat_bin", 1),
+                             ("paternal (ideal phasing)", "true_pat", "pred_pat_bin", 1),
+                             ("maternal (allele-specific)", "true_mat", "pred_mat_ideal", 1),
+                             ("paternal (allele-specific)", "true_pat", "pred_pat_ideal", 1),
                              ("total CN", "true_total", "pred_total", 2)):
         d = event_stats(scored_bins[t_], scored_bins[p_], nrm)
         summ.append(ev_line(f"{lab} gain", d, "gain"))
@@ -439,7 +474,8 @@ def main():
         "  (TP/FP/FN count bins; FP = called but not true, FN = true but not called)",
         "",
         f"per-cell both-haplotype accuracy: actual median {cells.acc_both.median():.3f}, "
-        f"ideal median {cells.acc_both_ideal.median():.3f}",
+        f"ideal phasing median {cells.acc_both_bin.median():.3f}, "
+        f"allele-specific median {cells.acc_both_ideal.median():.3f}",
     ]
     if bins.gamma.notna().any():
         summ.append(f"cells {LABEL} called as WGD-scaled (gamma > 3): {(cells.gamma > 3).sum()}/{len(cells)}")
@@ -454,8 +490,10 @@ def main():
         return np.select([x > normal, x < normal, x == normal], ["gain", "loss", "normal"], default="na")
 
     cnt_cols = []
-    for lab, col, nrm in (("mat_true", "true_mat", 1), ("mat_pred", "pred_mat", 1), ("mat_pred_ideal", "pred_mat_ideal", 1),
-                          ("pat_true", "true_pat", 1), ("pat_pred", "pred_pat", 1), ("pat_pred_ideal", "pred_pat_ideal", 1),
+    for lab, col, nrm in (("mat_true", "true_mat", 1), ("mat_pred", "pred_mat", 1), ("mat_pred_bin", "pred_mat_bin", 1),
+                          ("mat_pred_ideal", "pred_mat_ideal", 1),
+                          ("pat_true", "true_pat", 1), ("pat_pred", "pred_pat", 1), ("pat_pred_bin", "pred_pat_bin", 1),
+                          ("pat_pred_ideal", "pred_pat_ideal", 1),
                           ("total_true", "true_total", 2), ("total_pred", "pred_total", 2)):
         bins[f"_c_{lab}"] = classify(bins[col].values.astype(float), nrm)
         cnt_cols.append(lab)
@@ -469,7 +507,8 @@ def main():
     bc.to_csv(os.path.join(a.out_dir, "bin_event_counts.tsv"), sep="\t", index=False)
 
     with PdfPages(os.path.join(a.out_dir, "event_counts.pdf")) as pdf:
-        for suffix, heading in (("", "actual orientation"), ("_ideal", "ideal phasing interpretation")):
+        for suffix, heading in (("", "actual orientation"), ("_bin", "ideal phasing (per bin)"),
+                                ("_ideal", "allele-specific (per cell x bin)")):
             rows_ = [("mat", "maternal (gain = CN > 1, loss = CN 0)"), ("pat", "paternal (gain = CN > 1, loss = CN 0)")]
             if suffix == "":
                 rows_.append(("total", "total CN (gain > 2, loss < 2)"))
@@ -533,10 +572,16 @@ def main():
                    ("true_total", "pred_total", "total"), ("true_minor", "pred_minor", "minor allele (orientation-free)")],
                   f"All cells, scored bins - actual orientation\n{orient_note}")
         heat_page(pdf, scored,
-                  [("true_mat", "pred_mat_ideal", "maternal (ideal phasing)"),
-                   ("true_pat", "pred_pat_ideal", "paternal (ideal phasing)"),
+                  [("true_mat", "pred_mat_bin", "maternal (ideal phasing)"),
+                   ("true_pat", "pred_pat_bin", "paternal (ideal phasing)"),
                    ("true_total", "pred_total", "total (unchanged)")],
-                  "All cells, scored bins - ideal phasing interpretation\n"
+                  "All cells, scored bins - ideal phasing (per bin)\n"
+                  "each genomic bin uses one haplotype assignment for all cells, whichever fits the truth better")
+        heat_page(pdf, scored,
+                  [("true_mat", "pred_mat_ideal", "maternal (allele-specific)"),
+                   ("true_pat", "pred_pat_ideal", "paternal (allele-specific)"),
+                   ("true_total", "pred_total", "total (unchanged)")],
+                  "All cells, scored bins - allele-specific (per cell x bin)\n"
                   "each cell/bin uses whichever haplotype assignment fits the truth better")
         heat_page(pdf, bins[has_truth],
                   [("true_mat", "pred_mat", "maternal"), ("true_pat", "pred_pat", "paternal"),
@@ -581,8 +626,8 @@ def main():
                                 label="true")
                         ax.plot(px, ys(py), color=col, lw=1.3, zorder=3, label=LABEL)
                         ys.decorate(ax)
-                        if suffix == "_ideal":
-                            fl = cb[cb.ideal_flipped]
+                        if suffix in ("_bin", "_ideal"):
+                            fl = cb[cb.bin_flipped if suffix == "_bin" else cb.ideal_flipped]
                             if len(fl):
                                 ax.scatter((fl.start + fl.end) / 2e6, np.full(len(fl), -0.25), marker="|", s=40,
                                            color="tab:purple", zorder=4, label="A/B swapped here")
@@ -600,9 +645,10 @@ def main():
                 pdf.savefig(fig); plt.close(fig)
 
     plot_tracks(os.path.join(a.out_dir, "per_cell_tracks.pdf"), "", "actual orientation")
-    plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_ideal.pdf"), "_ideal", "ideal phasing interpretation")
+    plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_bin.pdf"), "_bin", "ideal phasing (per bin)")
+    plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_ideal.pdf"), "_ideal", "allele-specific (per cell x bin)")
 
-    print(f"\nwrote {a.out_dir}/per_cell_tracks.pdf, per_cell_tracks_ideal.pdf, confusion_all_cells.pdf, event_counts.pdf, bins.tsv, cells.tsv, summary.txt")
+    print(f"\nwrote {a.out_dir}/per_cell_tracks.pdf, per_cell_tracks_bin.pdf, per_cell_tracks_ideal.pdf, confusion_all_cells.pdf, event_counts.pdf, bins.tsv, cells.tsv, summary.txt")
 
 
 if __name__ == "__main__":
