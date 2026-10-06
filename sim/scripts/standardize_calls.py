@@ -12,12 +12,14 @@ Output columns (TSV, one row per cell x bin):
   plus caller-specific extras (kept for later metrics, ignored by eval_calls.py
   unless named there):
     hiscanner: gamma
-    chisel:    cluster, rdr, baf, a_count, b_count, clone (from clones/mapping.tsv)
+    chisel:    cluster, rdr, baf, a_count, b_count, clone (from clones/mapping.tsv),
+               CN_A_raw / CN_B_raw (the per-cell call, when scoring corrected)
 
 Usage
   standardize_calls.py hiscanner --calls-dir <hiscanner>/output/final_calls --out calls.tsv
   standardize_calls.py chisel --calls <chisel>/calls/calls.tsv \
-      --barcodes <prep>/barcodedcells.info.tsv [--clones <chisel>/clones/mapping.tsv] --out calls.tsv
+      --barcodes <prep>/barcodedcells.info.tsv [--clones <chisel>/clones/mapping.tsv] \
+      [--cn corrected|raw] --out calls.tsv
 """
 import argparse
 import glob
@@ -70,9 +72,28 @@ def from_hiscanner(a):
 def from_chisel(a):
     calls = pd.read_csv(a.calls, sep="\t")
     calls.columns = [c.lstrip("#") for c in calls.columns]
-    need = {"CHR", "START", "END", "CELL", "CN_STATE"}
+    need = {"CHR", "START", "END", "CELL"}
     if not need.issubset(calls.columns):
         sys.exit(f"ERROR: {a.calls} lacks columns {sorted(need - set(calls.columns))}")
+
+    # Copy numbers ("a|b"). CHISEL writes CN_STATE; its cloning step then renames it
+    # HAP_CN (the cell's own call) and adds CORRECTED_HAP_CN (the most common call
+    # among the cells of its clone, per bin).
+    if a.cn == "corrected":
+        if "CORRECTED_HAP_CN" not in calls.columns:
+            sys.exit(f"ERROR: {a.calls} has no CORRECTED_HAP_CN column (did CHISEL's cloning step run? "
+                     f"see clones/log); set CHISEL_EVAL_CN=raw to score the per-cell calls instead")
+        cn_col = "CORRECTED_HAP_CN"
+    else:
+        cn_col = next((c for c in ("HAP_CN", "CN_STATE") if c in calls.columns), None)
+    if cn_col is None:
+        pat = r"^\d+\|\d+$"
+        cands = [c for c in calls.columns
+                 if not pd.api.types.is_numeric_dtype(calls[c]) and calls[c].astype(str).str.match(pat).all()]
+        if len(cands) != 1:
+            sys.exit(f"ERROR: cannot find the 'a|b' copy-number column in {a.calls}; columns: {list(calls.columns)}")
+        cn_col = cands[0]
+    print(f"[standardize_calls] CHISEL copy numbers from column {cn_col}", file=sys.stderr)
 
     bc = pd.read_csv(a.barcodes, sep="\t")
     bc.columns = [c.lstrip("#") for c in bc.columns]
@@ -85,9 +106,9 @@ def from_chisel(a):
     if unknown:
         sys.exit(f"ERROR: {len(unknown)} CHISEL barcodes not in {a.barcodes}, e.g. {unknown[:3]}")
 
-    ab = calls.CN_STATE.astype(str).str.split("|", expand=True)
+    ab = calls[cn_col].astype(str).str.split("|", expand=True)
     if ab.shape[1] != 2:
-        sys.exit(f"ERROR: unexpected CN_STATE values in {a.calls}, e.g. {calls.CN_STATE.iloc[0]}")
+        sys.exit(f"ERROR: unexpected {cn_col} values in {a.calls}, e.g. {calls[cn_col].iloc[0]}")
 
     out = pd.DataFrame({
         "cell": calls.CELL.map(to_cell),
@@ -95,6 +116,10 @@ def from_chisel(a):
         "start": calls.START.astype("int64"), "end": calls.END.astype("int64"),
         "CN_A": ab[0].astype(int), "CN_B": ab[1].astype(int),
     })
+    raw_col = next((c for c in ("HAP_CN", "CN_STATE") if c in calls.columns), None)
+    if cn_col == "CORRECTED_HAP_CN" and raw_col:
+        rab = calls[raw_col].astype(str).str.split("|", expand=True)
+        out["CN_A_raw"], out["CN_B_raw"] = rab[0].astype(int).values, rab[1].astype(int).values
     for src, dst in (("CLUSTER", "cluster"), ("RDR", "rdr"), ("BAF", "baf"), ("A_COUNT", "a_count"), ("B_COUNT", "b_count")):
         if src in calls.columns:
             out[dst] = calls[src].values
@@ -121,6 +146,8 @@ def main():
     c.add_argument("--calls", required=True)
     c.add_argument("--barcodes", required=True)
     c.add_argument("--clones")
+    c.add_argument("--cn", choices=["corrected", "raw"], default="corrected",
+                   help="corrected = clone consensus (CORRECTED_HAP_CN); raw = per-cell call (HAP_CN / CN_STATE)")
     c.add_argument("--out", required=True)
     a = ap.parse_args()
 

@@ -139,7 +139,7 @@ CHISEL_MINREADS=10000       # cells with fewer reads (MAPQ>=13, on CHISEL_CHROMS
 CHISEL_MAXPLOIDY=3          # base ploidies tried are 2, 4, ... up to this: 3 = diploid only
                             # (no WGD, like HS_MAX_WGD=1); 4 = also test a WGD
 CHISEL_UPPERK=100           # max bin clusters
-
+CHISEL_EVAL_CN="corrected"  # corrected = clone consensus (CORRECTED_HAP_CN, CHISEL's final output); raw = each cell's own call (HAP_CN)
 
 
 # ============================================================

@@ -37,7 +37,8 @@ TRUTH="${EVAL_TRUTH}"
 CALLS_STD="${OUT_DIR}/calls.tsv"
 case ${CALLER} in
     hiscanner) LABEL="HiScanner (${PHASER})" ;;
-    chisel)    LABEL="CHISEL (${PHASER})" ;;
+    chisel)    CHISEL_EVAL_CN="${CHISEL_EVAL_CN:-corrected}"
+               LABEL="CHISEL (${PHASER}, ${CHISEL_EVAL_CN})" ;;
     *)         LABEL="${CALLER} (${PHASER})" ;;
 esac
 
@@ -101,7 +102,8 @@ case ${CALLER} in
     chisel)
         python3 -B "${SCRIPTS}/standardize_calls.py" chisel \
             --calls "${CALL_OUT}" --barcodes "${CHISEL_BARCODES}" \
-            --clones "$(call_dir chisel "${PHASER}")/clones/mapping.tsv" --out "${CALLS_STD}" ;;
+            --clones "$(call_dir chisel "${PHASER}")/clones/mapping.tsv" \
+            --cn "${CHISEL_EVAL_CN}" --out "${CALLS_STD}" ;;
 esac
 
 # ============================================================
