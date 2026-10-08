@@ -45,11 +45,19 @@ stage's output exists (pass `--after JOBID` if it's still being made).
 |---|---|
 | simulation | `sim/{bams,bulk,cn_mat,dwgsim}` |
 | phase | `scan2_out/` or `ugp/out/phase/phased_het_snps.vcf.gz` |
-| call | `hiscanner/<phaser>/`, `chisel/<phaser>/` (barcoded BAM shared in `chisel/prep/`) |
-| eval | `eval/<phaser>_<caller>/` (lifted truth shared: `eval/truth_hg38.tsv`) |
+| call | `<caller>_<binsize bp>/<phaser>/`, e.g. `chisel_5000000/ugp/`, `hiscanner_500000/scan2/` (barcoded BAM shared in `chisel/prep/`) |
+| eval | `eval/<phaser>_<caller>_<binsize bp>/`, e.g. `eval/ugp_chisel_5000000/` (lifted truth shared: `eval/truth_hg38.tsv`) |
+
+Bin size comes from `CHISEL_BINSIZE` / `HS_BINSIZE` in `config.sh`, or `--binsize` per run
+(`./run_pipeline.sh --phaser ugp --caller chisel --from call --binsize 1Mb`). It is pinned
+when you submit, so editing `config.sh` afterwards doesn't affect queued jobs.
+
+Eval outputs: `summary.txt` (accuracy + gain/normal/loss TP/TN/FP/FN), `confusion_segments.pdf`
+(+ `section_confusion.tsv`), `per_cell_tracks{,_bin,_ideal}.pdf`, and `calls.tsv` (the
+converted calls that were scored).
 
 Every caller's output is converted by `standardize_calls.py` to one table
-(`eval/<route>/calls.tsv`: cell, chrom, start, end, CN_A, CN_B + extras), so
+(`calls.tsv` in the eval folder: cell, chrom, start, end, CN_A, CN_B + extras), so
 `eval_calls.py` is the same for every caller. Adding a caller = a `call_<x>.sh`,
 a converter in `standardize_calls.py`, and an entry in `ROUTES` in `scripts/common.sh`.
 

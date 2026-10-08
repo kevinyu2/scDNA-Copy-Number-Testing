@@ -9,7 +9,7 @@
 # CHISEL on the barcoded BAM from chisel_prep.sh, using the phased het SNPs
 # from ${PHASER}. Submitted by run_pipeline.sh --caller chisel.
 #
-# Outputs (in ${PROJECT_DIR}/chisel/${PHASER}/):
+# Outputs (in ${PROJECT_DIR}/chisel_<binsize bp>/${PHASER}/, e.g. chisel_5000000/ugp/):
 #   phased_snps.tsv   CHISEL's -l input ("#CHR POS PHASE", PHASE = 0|1 or 1|0),
 #                     made from the phaser's VCF
 #   rdr/ baf/ combo/ calls/ clones/ plots/   CHISEL's own folders
@@ -35,6 +35,7 @@ set -euo pipefail
 # Defaults (override in config.sh)
 CHISEL_CHROMS="${CHISEL_CHROMS:-${CHR}}"
 CHISEL_BINSIZE="${CHISEL_BINSIZE:-5Mb}"
+BIN_BP=$(to_bp "${CHISEL_BINSIZE}")          # also names the run folder
 CHISEL_BLOCKSIZE="${CHISEL_BLOCKSIZE:-50kb}"
 CHISEL_MINREADS="${CHISEL_MINREADS:-10000}"
 CHISEL_MAXPLOIDY="${CHISEL_MAXPLOIDY:-3}"
@@ -118,7 +119,7 @@ for d in rdr baf combo calls clones plots; do
     rm -rf "${RUN_DIR:?}/${d}"
 done
 
-note "Running CHISEL: bins ${CHISEL_BINSIZE}, blocks ${CHISEL_BLOCKSIZE}, minreads ${CHISEL_MINREADS}, maxploidy ${CHISEL_MAXPLOIDY}"
+note "Running CHISEL: bins ${BIN_BP} bp, blocks ${CHISEL_BLOCKSIZE}, minreads ${CHISEL_MINREADS}, maxploidy ${CHISEL_MAXPLOIDY}"
 RC=0
 chisel \
     -x "${RUN_DIR}" \
@@ -126,7 +127,7 @@ chisel \
     -n "${BULK_BAM}" \
     -r "${REF}" \
     -l "${SNPS}" \
-    -b "${CHISEL_BINSIZE}" \
+    -b "${BIN_BP}" \
     -k "${CHISEL_BLOCKSIZE}" \
     -c "${CHISEL_CHROMS}" \
     -m "${CHISEL_MINREADS}" \

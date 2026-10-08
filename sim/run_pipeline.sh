@@ -18,6 +18,9 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
   --from S       first stage: phase | call | eval     (default: phase)
   --to S         last stage:  phase | call | eval     (default: eval)
   --only S       same as --from S --to S
+  --binsize B    caller bin size for this run (e.g. 1Mb, 500kb, 2000000); overrides
+                 CHISEL_BINSIZE / HS_BINSIZE from config.sh. Output folders are
+                 named by it: <caller>_<bp>/ and eval/<phaser>_<caller>_<bp>/
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
   --dry-run      print the sbatch commands without submitting
@@ -33,9 +36,10 @@ Examples
   ./run_pipeline.sh --phaser ugp --caller chisel --from call    # UGP already done
   ./run_pipeline.sh --phaser scan2 --caller hiscanner --only eval
   ./run_pipeline.sh --phaser ugp --to phase                     # just phasing
+  ./run_pipeline.sh --phaser ugp --caller chisel --from call --binsize 1Mb   # a second bin size
   ./run_sim.sh -- --phaser ugp --caller chisel                  # simulate, then all of this
 
-Outputs: ${PROJECT_DIR}/<caller>/<phaser>/ and ${EVAL_DIR}/<phaser>_<caller>/
+Outputs: ${PROJECT_DIR}/<caller>_<binsize bp>/<phaser>/ and ${EVAL_DIR}/<phaser>_<caller>_<binsize bp>/
 EOF
 }
 
@@ -58,7 +62,7 @@ stage_index() {
 # Arguments
 # ============================================================
 
-PHASER="" CALLER="" FROM=phase TO=eval AFTER="" DRY=false
+PHASER="" CALLER="" FROM=phase TO=eval AFTER="" DRY=false BINSIZE=""
 while (( $# )); do
     case $1 in
         --phaser)  PHASER=${2:?--phaser needs a value}; shift 2 ;;
@@ -67,6 +71,7 @@ while (( $# )); do
         --to)      TO=${2:?--to needs a value};         shift 2 ;;
         --only)    FROM=${2:?--only needs a value}; TO=$2; shift 2 ;;
         --after)   AFTER=${2:?--after needs a value};   shift 2 ;;
+        --binsize) BINSIZE=${2:?--binsize needs a value}; shift 2 ;;
         --dry-run) DRY=true; shift ;;
         --list)    list_routes; exit 0 ;;
         -h|--help) usage; exit 0 ;;
@@ -97,6 +102,23 @@ if (( TO_I >= 1 )); then
 elif [[ -n ${CALLER} ]]; then
     note "--to phase: ignoring --caller ${CALLER}"
     CALLER=""
+fi
+
+# Bin size: --binsize overrides config.sh; either way it is pinned into the jobs
+if [[ -n ${BINSIZE} ]]; then
+    [[ -n ${CALLER} ]] || die "--binsize needs --caller"
+    case ${CALLER} in
+        chisel)    CHISEL_BINSIZE=${BINSIZE} ;;
+        hiscanner) HS_BINSIZE=${BINSIZE} ;;
+    esac
+fi
+# (plain assignments, so a bad size stops the launcher before anything is submitted)
+PIN_C=$(to_bp "${CHISEL_BINSIZE}")
+PIN_H=$(to_bp "${HS_BINSIZE}")
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H}"
+if [[ -n ${CALLER} ]]; then
+    CALLER_BP=$(caller_binsize "${CALLER}")
+    note "${CALLER} bin size: ${CALLER_BP} bp"
 fi
 
 # ============================================================
@@ -133,7 +155,7 @@ join_deps() { local out="" x; for x in "$@"; do [[ -n $x ]] && out+="${out:+:}$x
 
 submit() {   # label deps script [extra sbatch args...]
     local label=$1 deps=$2 script=$3; shift 3
-    local args=(--parsable --export="ALL,PHASER=${PHASER},CALLER=${CALLER}")
+    local args=(--parsable --export="ALL,PHASER=${PHASER},CALLER=${CALLER},${PINS}")
     [[ -n ${deps} ]] && args+=(--dependency="afterok:${deps}" --kill-on-invalid-dep=yes)
     if [[ ${DRY} == true ]]; then
         echo "  sbatch ${args[*]} $* ${script}" >&2

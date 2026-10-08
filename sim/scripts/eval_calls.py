@@ -8,7 +8,7 @@ Inputs
                  (cell, chrom, start, end, CN_A, CN_B [, gamma, ...])
   --caller-name  label used in plots and the summary (e.g. "CHISEL (ugp)")
 
-Truth for a bin (used only for scoring and the heatmaps; the track plots draw
+Truth for a bin (used only for scoring; the track plots draw
 the truth at its own breakpoints)
   Of the truth that aligns inside the bin, the copy number covering the most
   bases is the bin's true value.
@@ -38,28 +38,17 @@ Haplotype orientation (which called haplotype, A or B, is maternal)
           compatibility.)
 
 Outputs (in --out-dir)
+  summary.txt               accuracy over scored bins and gain / normal / loss
+                            TP / TN / FP / FN tables, for all three orientation levels
+  confusion_segments.pdf    3x3 gain / normal / loss confusion: all cn_mat segments pooled,
+                            then one page per segment; maternal and paternal x actual /
+                            ideal phasing / allele-specific. --conf-unit cells (each cell x
+                            segment once, majority call) or bp (base-pair weighted)
+  section_confusion.tsv     the numbers behind it, both units (hap, seg, level, true, pred, cells, bp)
   per_cell_tracks.pdf       maternal/paternal predicted vs true (actual orientation);
                             shows all data, scoring is not marked
   per_cell_tracks_bin.pdf   same, ideal phasing (per bin; purple ticks = bin flipped vs actual)
   per_cell_tracks_ideal.pdf same, allele-specific (purple ticks = A/B swapped)
-  confusion_all_cells.pdf true vs predicted per bin, all cells pooled (all three levels)
-  bins.tsv, cells.tsv, summary.txt
-  sections.tsv            per cn_mat column (and haplotype), pooled over cells:
-                          % of compared bases called correctly, mean (signed and
-                          absolute) CN difference, and % of bases that are TP / TN /
-                          FP / FN for gain, normal and loss (one-vs-rest);
-                          actual, per-bin and allele-specific
-  sections_by_cell.tsv    the same per cell x column
-  confusion_segments.pdf  3x3 gain / normal / loss confusion (base-pair weighted), all
-                          segments pooled, then one page per cn_mat segment; maternal and
-                          paternal x actual / ideal phasing / allele-specific
-  section_confusion.tsv   the numbers behind it (hap, seg, level, true, pred, bp)
-  bin_event_counts.tsv    per bin: number of cells with a gain / loss / normal state,
-                          true (bin majority) and predicted, per haplotype and total CN
-  truth_event_counts.tsv  true gain / loss / normal cell counts at the resolution of the
-                          lifted cn_mat segments (not binned), per haplotype and total CN
-  event_counts.pdf        counts along the chromosome: true lines from
-                          truth_event_counts.tsv, caller lines per bin
 """
 import argparse
 import os
@@ -71,7 +60,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.colors import LogNorm
 
 
 # ---------------------------------------------------------------- helpers
@@ -119,38 +107,6 @@ def bin_truth(bins, segs):
     with np.errstate(invalid="ignore", divide="ignore"):
         mean = np.where(has, (ov * cn).sum(axis=1) / covered, np.nan)
     return majority, purity, np.minimum(covered / blen, 1.0), mean
-
-
-def merge_intervals(s, e, gap=0):
-    """Union of half-open intervals [s, e); intervals closer than `gap` are joined."""
-    if len(s) == 0:
-        return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
-    o = np.argsort(s, kind="stable")
-    s, e = np.asarray(s)[o], np.asarray(e)[o]
-    ce = np.maximum.accumulate(e)
-    new = np.r_[True, s[1:] > ce[:-1] + gap]
-    idx = np.flatnonzero(new)
-    return s[new], np.maximum.reduceat(e, idx)
-
-
-def lookup_cn(pieces, x):
-    """CN of the truth piece covering each position x (NaN where none).
-    pieces: start-sorted DataFrame with start, end (1-based inclusive), cn."""
-    if pieces is None or pieces.empty:
-        return np.full(len(x), np.nan)
-    st, en, cn = pieces.start.values, pieces.end.values, pieces.cn.values.astype(float)
-    i = np.searchsorted(st, x, side="right") - 1
-    ok = (i >= 0) & (en[np.clip(i, 0, None)] >= x)
-    return np.where(ok, cn[np.clip(i, 0, None)], np.nan)
-
-
-def count_coverage(groups, breakpoints):
-    """Cells covering each elementary interval [bp[i], bp[i+1]): one +1/-1 per merged interval."""
-    delta = np.zeros(len(breakpoints), dtype=np.int64)
-    for s_, e_ in groups:
-        np.add.at(delta, np.searchsorted(breakpoints, s_), 1)
-        np.add.at(delta, np.searchsorted(breakpoints, e_), -1)
-    return np.cumsum(delta)[:-1]
 
 
 def step_xy(starts, ends, vals, max_gap=1000):
@@ -240,7 +196,8 @@ def main():
     ap.add_argument("--orientation", choices=["global", "cell"], default="global")
     ap.add_argument("--cells-per-page", type=int, default=4)
     ap.add_argument("--max-cells-plot", type=int, default=0)
-    ap.add_argument("--max-cn", type=int, default=8, help="heatmap axis cap; larger values lumped")
+    ap.add_argument("--conf-unit", choices=["cells", "bp"], default="cells",
+                    help="confusion_segments.pdf: count cell x segments (majority call) or base pairs")
     ap.add_argument("--y-linear-max", type=float, default=8, help="track plots: CN above this goes above an axis break")
     ap.add_argument("--merge-gap", type=int, default=1000)
     ap.add_argument("--max-mean-dev", type=float, default=0.5,
@@ -340,11 +297,15 @@ def main():
     bins["truemean_total"] = bins.truemean_mat + bins.truemean_pat
     bins["true_minor"] = bins[["true_mat", "true_pat"]].min(axis=1)
     bins["pred_minor"] = bins[["pred_mat", "pred_pat"]].min(axis=1)
-    bins.to_csv(os.path.join(a.out_dir, "bins.tsv"), sep="\t", index=False)
 
-    # ---------------- per-section (cn_mat column) scores ----------------
-    # Base-pair overlap between each lifted truth piece and the caller's bins;
-    # no bins are filtered here. A base counts once it has both truth and a call.
+    # ---------------- gain / normal / loss confusion per cn_mat segment ----------------
+    # Each lifted truth piece is compared with the caller's bins by base-pair overlap
+    # (no bins filtered). Per haplotype: gain = CN > 1, normal = 1, loss = 0.
+    # --conf-unit cells: each cell x segment counts once, called as whichever state
+    #                    covers most of its compared bases.
+    # --conf-unit bp:    every compared base counts (summed over cells, in cell-Mb).
+    LEVELS = [("", "actual"), ("_bin", "ideal phasing (per bin)"), ("_ideal", "allele-specific")]
+    ORDER = ["loss", "normal", "gain"]
     if "seg" in truth.columns:
         recs = []
         for (cell, chrom), cb in bins.groupby(["cell", "chrom"]):
@@ -355,127 +316,91 @@ def main():
                     continue
                 ts, te, cn = tg.start.values, tg.end.values, tg.cn.values.astype(float)
                 ov = np.clip(np.minimum(te[:, None], be[None, :]) - np.maximum(ts[:, None], bs[None, :]), 0, None).astype(float)
-                rec = pd.DataFrame({"cell": cell, "hap": h, "seg": tg.seg.values,
-                                    "lifted_bp": (te - ts).astype(float), "true_cn": cn,
+                rec = pd.DataFrame({"cell": cell, "hap": h, "seg": tg.seg.values, "true_cn": cn,
                                     "compared_bp": ov.sum(axis=1)})
-                for suffix in ("", "_bin", "_ideal"):
-                    pred = cb[f"pred_{h}{suffix}"].values.astype(float)
-                    diff = pred[None, :] - cn[:, None]
-                    rec[f"correct_bp{suffix}"] = (ov * (diff == 0)).sum(axis=1)
-                    rec[f"diff_bp{suffix}"] = (ov * diff).sum(axis=1)
-                    rec[f"absdiff_bp{suffix}"] = (ov * np.abs(diff)).sum(axis=1)
-                    # Per haplotype, one-vs-rest: gain = CN > 1, normal = CN 1, loss = CN 0
-                    mt, mp = event_masks(cn, 1), event_masks(pred, 1)
-                    for ev in EVENTS:
-                        t_ev, p_ev = mt[ev][:, None], mp[ev][None, :]
-                        rec[f"{ev}_tp_bp{suffix}"] = (ov * (t_ev & p_ev)).sum(axis=1)
-                        rec[f"{ev}_tn_bp{suffix}"] = (ov * (~t_ev & ~p_ev)).sum(axis=1)
-                        rec[f"{ev}_fp_bp{suffix}"] = (ov * (~t_ev & p_ev)).sum(axis=1)
-                        rec[f"{ev}_fn_bp{suffix}"] = (ov * (t_ev & ~p_ev)).sum(axis=1)
-                        rec[f"pred_{ev}_bp{suffix}"] = (ov * p_ev).sum(axis=1)     # for the 3x3 confusion
-                rec["true_state"] = np.select([cn > 1, cn < 1], ["gain", "loss"], default="normal")
+                for x, _ in LEVELS:
+                    mp = event_masks(cb[f"pred_{h}{x}"].values.astype(float), 1)
+                    for ev in ORDER:
+                        rec[f"pred_{ev}_bp{x}"] = (ov * mp[ev][None, :]).sum(axis=1)
                 recs.append(rec)
-        if recs:
-            sec = pd.concat(recs, ignore_index=True)
-            sums = ["lifted_bp", "compared_bp"] + [
-                f"{k}{x}" for x in ("", "_bin", "_ideal")
-                for k in ["correct_bp", "diff_bp", "absdiff_bp"] + [f"{ev}_{c}_bp" for ev in EVENTS for c in CONF]]
-            # per cell x section
-            byc = sec.groupby(["cell", "hap", "seg"], sort=False).agg({**{c: "sum" for c in sums}, "true_cn": "first"}).reset_index()
+        sec = pd.concat(recs, ignore_index=True)
+        sec = sec[sec.compared_bp > 0]
+        bpcols = [f"pred_{ev}_bp{x}" for x, _ in LEVELS for ev in ORDER]
+        # one row per cell x haplotype x segment (a segment has one true CN per cell)
+        cs = sec.groupby(["cell", "hap", "seg"], sort=False).agg(
+            {**{c: "sum" for c in bpcols}, "true_cn": "first", "compared_bp": "sum"}).reset_index()
+        cs["true"] = np.select([cs.true_cn > 1, cs.true_cn < 1], ["gain", "loss"], default="normal")
 
-            def rates(df):
-                cmp_ = df.compared_bp.where(df.compared_bp > 0)
-                out = pd.DataFrame(index=df.index)
-                for x in ("", "_bin", "_ideal"):
-                    out[f"pct_correct{x}"] = 100 * df[f"correct_bp{x}"] / cmp_
-                    out[f"mean_diff{x}"] = df[f"diff_bp{x}"] / cmp_
-                    out[f"mean_abs_diff{x}"] = df[f"absdiff_bp{x}"] / cmp_
-                    for ev in EVENTS:
-                        for c in CONF:
-                            out[f"pct_{ev}_{c}{x}"] = 100 * df[f"{ev}_{c}_bp{x}"] / cmp_
-                return out
+        conf_rows = []
+        for x, _ in LEVELS:
+            lvl = {"": "actual", "_bin": "ideal_phasing", "_ideal": "allele_specific"}[x]
+            bp = cs[[f"pred_{ev}_bp{x}" for ev in ORDER]].values
+            # majority call; ties go to normal, then loss
+            pref = bp + np.array([1e-9, 2e-9, 0.0])
+            cs[f"pred{x}"] = np.array(ORDER)[np.argmax(pref, axis=1)]
+            for (h, sg, t), g in cs.groupby(["hap", "seg", "true"], sort=False):
+                for j, ev in enumerate(ORDER):
+                    conf_rows.append((h, sg, lvl, t, ev, int((g[f"pred{x}"] == ev).sum()),
+                                      float(g[f"pred_{ev}_bp{x}"].sum())))
+        conf = pd.DataFrame(conf_rows, columns=["hap", "seg", "level", "true", "pred", "cells", "bp"])
+        conf.to_csv(os.path.join(a.out_dir, "section_confusion.tsv"), sep="\t", index=False)
 
-            byc = pd.concat([byc[["cell", "hap", "seg", "true_cn", "lifted_bp", "compared_bp"]], rates(byc)], axis=1)
-            byc.to_csv(os.path.join(a.out_dir, "sections_by_cell.tsv"), sep="\t", index=False)
+        unit = a.conf_unit
+        val = "cells" if unit == "cells" else "bp"
 
-            # per section, pooled over cells (base-pair weighted)
-            agg = sec.groupby(["hap", "seg"], sort=False)
-            col = agg[sums].sum()
-            col["n_cells"] = agg.cell.nunique()
-            col["mean_true_cn"] = byc.groupby(["hap", "seg"], sort=False).true_cn.mean()
-            col["true_cn_values"] = byc.groupby(["hap", "seg"], sort=False).true_cn.apply(
-                lambda v: ",".join(str(int(x)) for x in sorted(v.unique())))
-            col = col.reset_index()
-            se = col.seg.str.extract(r":(\d+)-(\d+)$").astype(np.int64)
-            col["seg_len"] = se[1] - se[0] + 1
-            col["lifted_bp_per_cell"] = col.lifted_bp / col.n_cells
-            col["frac_compared"] = col.compared_bp / col.lifted_bp
-            col = pd.concat([col[["hap", "seg", "seg_len", "lifted_bp_per_cell", "frac_compared", "n_cells",
-                                  "mean_true_cn", "true_cn_values"]], rates(col)], axis=1)
-            col["seg_start"] = se[0]
-            col = col.sort_values(["hap", "seg_start"]).drop(columns="seg_start")
-            col.to_csv(os.path.join(a.out_dir, "sections.tsv"), sep="\t", index=False)
+        def conf_matrix(df, lvl):
+            return (df[df.level == lvl].groupby(["true", "pred"])[val].sum()
+                    .unstack().reindex(index=ORDER, columns=ORDER).fillna(0).values)
 
-            # ---- 3x3 gain / normal / loss confusion per section, base-pair weighted ----
-            order = ["loss", "normal", "gain"]
-            levels = [("", "actual"), ("_bin", "ideal phasing (per bin)"), ("_ideal", "allele-specific")]
-            conf_rows = []
-            for (h, sg), g in sec.groupby(["hap", "seg"], sort=False):
-                for x, _ in levels:
-                    for ts in order:
-                        gg = g[g.true_state == ts]
-                        for ps in order:
-                            conf_rows.append((h, sg, x or "actual", ts, ps, float(gg[f"pred_{ps}_bp{x}"].sum())))
-            conf = pd.DataFrame(conf_rows, columns=["hap", "seg", "level", "true", "pred", "bp"])
-            conf["level"] = conf.level.replace({"_bin": "ideal_phasing", "_ideal": "allele_specific"})
-            conf.to_csv(os.path.join(a.out_dir, "section_confusion.tsv"), sep="\t", index=False)
+        def fmt(v):
+            return f"{int(v):,}" if unit == "cells" else f"{v / 1e6:,.1f}"
 
-            def conf_matrix(df, lvl):
-                m = (df[df.level == lvl].groupby(["true", "pred"]).bp.sum()
-                     .unstack().reindex(index=order, columns=order).fillna(0).values)
-                return m                                    # rows = true, cols = pred
+        def draw(ax, m, title):
+            tot = m.sum(axis=1, keepdims=True)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                frac = np.where(tot > 0, m / tot, np.nan)
+            ax.imshow(np.nan_to_num(frac, nan=0), cmap="Blues", vmin=0, vmax=1)
+            for i in range(3):
+                for j in range(3):
+                    if tot[i, 0] > 0:
+                        ax.text(j, i, f"{100 * frac[i, j]:.1f}%\n{fmt(m[i, j])}", ha="center", va="center",
+                                fontsize=7.5, color="white" if frac[i, j] > 0.6 else "black")
+                    else:
+                        ax.text(j, i, "-", ha="center", va="center", fontsize=8, color="0.6")
+            ax.set_xticks(range(3)); ax.set_xticklabels(ORDER, fontsize=8)
+            ax.set_yticks(range(3)); ax.set_yticklabels([f"{o}\n({fmt(tot[i, 0])})" for i, o in enumerate(ORDER)], fontsize=7.5)
+            ax.set_xlabel(f"{LABEL} call", fontsize=8)
+            ax.set_ylabel("true state", fontsize=8)
+            agree = np.trace(m) / m.sum() if m.sum() else np.nan
+            ax.set_title(f"{title}\nagreement {agree:.3f}", fontsize=8.5)
 
-            def draw(ax, m, title):
-                rows_tot = m.sum(axis=1, keepdims=True)
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    frac = np.where(rows_tot > 0, m / rows_tot, np.nan)
-                ax.imshow(np.nan_to_num(frac, nan=0), cmap="Blues", vmin=0, vmax=1)
-                for i in range(3):
-                    for j in range(3):
-                        if rows_tot[i, 0] > 0:
-                            ax.text(j, i, f"{100 * frac[i, j]:.1f}%\n{m[i, j] / 1e6:,.1f}",
-                                    ha="center", va="center", fontsize=7.5,
-                                    color="white" if frac[i, j] > 0.6 else "black")
-                        else:
-                            ax.text(j, i, "-", ha="center", va="center", fontsize=8, color="0.6")
-                ax.set_xticks(range(3)); ax.set_xticklabels(order, fontsize=8)
-                ax.set_yticks(range(3))
-                ax.set_yticklabels([f"{o}\n({rows_tot[i, 0] / 1e6:,.0f})" for i, o in enumerate(order)], fontsize=7.5)
-                ax.set_xlabel(f"{LABEL} call", fontsize=8)
-                ax.set_ylabel("true state (cell-Mb)", fontsize=8)
-                diag = np.trace(m) / m.sum() if m.sum() else np.nan
-                ax.set_title(f"{title}\nagreement {diag:.3f}", fontsize=8.5)
+        how = ("each box: % of the row, then cells; each cell x segment counts once, called by the majority "
+               "of its compared bases" if unit == "cells" else
+               "each box: % of the row, then cell-Mb (Mb summed over cells; e.g. 10 cells x 2 Mb = 20)")
 
-            def page(pdf, df, heading):
-                fig, axs = plt.subplots(2, 3, figsize=(12, 8))
-                for r_, (h, hname) in enumerate((("mat", "maternal"), ("pat", "paternal"))):
-                    for c_, (x, lname) in enumerate(levels):
-                        lvl = {"": "actual", "_bin": "ideal_phasing", "_ideal": "allele_specific"}[x]
-                        draw(axs[r_, c_], conf_matrix(df[df.hap == h], lvl), f"{hname} - {lname}")
-                fig.suptitle(heading + "\ncells: % of the true state's bases (row), then cell-Mb; "
-                             "per haplotype: gain = CN > 1, normal = 1, loss = 0", fontsize=9.5)
-                fig.tight_layout()
-                pdf.savefig(fig); plt.close(fig)
+        def page(pdf, df, heading):
+            fig, axs = plt.subplots(2, 3, figsize=(12, 8))
+            for r_, (h, hname) in enumerate((("mat", "maternal"), ("pat", "paternal"))):
+                for c_, (x, lname) in enumerate(LEVELS):
+                    lvl = {"": "actual", "_bin": "ideal_phasing", "_ideal": "allele_specific"}[x]
+                    draw(axs[r_, c_], conf_matrix(df[df.hap == h], lvl), f"{hname} - {lname}")
+            fig.suptitle(f"{heading}\n{how}\nper haplotype: gain = CN > 1, normal = 1, loss = 0", fontsize=9.5)
+            fig.tight_layout()
+            pdf.savefig(fig); plt.close(fig)
 
-            with PdfPages(os.path.join(a.out_dir, "confusion_segments.pdf")) as pdf:
-                page(pdf, conf, "All cn_mat segments pooled, all cells (base-pair weighted, no bins filtered)")
-                seg_order = col.drop_duplicates("seg").seg.tolist()
-                for sg in sorted(set(seg_order), key=lambda v: int(v.split(":")[1].split("-")[0])):
-                    info = col[col.seg == sg]
-                    vals = "; ".join(f"{hh}: CN {v}" for hh, v in zip(info.hap, info.true_cn_values))
-                    page(pdf, conf[conf.seg == sg], f"Segment {sg}  ({vals})")
+        def cn_range(v):
+            lo, hi = int(v.min()), int(v.max())
+            return f"{lo}" if lo == hi else f"{lo}-{hi}"
+
+        with PdfPages(os.path.join(a.out_dir, "confusion_segments.pdf")) as pdf:
+            page(pdf, conf, "All cn_mat segments pooled, all cells")
+            segs = sorted(cs.seg.unique(), key=lambda v: int(v.rsplit(":", 1)[1].split("-")[0]))
+            for sg in segs:
+                g = cs[cs.seg == sg]
+                rng = ", ".join(f"{h} CN {cn_range(g[g.hap == h].true_cn)}" for h in ("mat", "pat") if (g.hap == h).any())
+                page(pdf, conf[conf.seg == sg], f"Segment {sg}  ({rng}; {g.cell.nunique()} cells)")
     else:
-        print("[eval] truth file has no 'seg' column (made by an older lift_truth.py); skipping per-section scores",
+        print("[eval] truth file has no 'seg' column (made by an older lift_truth.py); skipping confusion_segments.pdf",
               file=sys.stderr)
 
     # ---------------- metrics ----------------
@@ -514,7 +439,6 @@ def main():
     cells = pd.DataFrame([dict(cell=c, n_bins=len(g), n_scored=int(g.scored.sum()),
                                **metrics(g[g.scored]), gamma=g.gamma.iloc[0], swapped=bool(g.swap.iloc[0]))
                           for c, g in bins.groupby("cell")])
-    cells.to_csv(os.path.join(a.out_dir, "cells.tsv"), sep="\t", index=False)
 
     mt = metrics(bins[bins.scored])
     n_bins, n_sc = len(bins), int(bins.scored.sum())
@@ -579,173 +503,6 @@ def main():
         fh.write(text + "\n")
     print(text)
 
-    # ---------------- cells gained / lost / normal at each bin ----------------
-    # Population view over all bins (not only scored ones); truth = bin majority.
-    # ---------------- true event counts at truth-segment resolution ----------------
-    # From the lifted cn_mat segments themselves, not binned: at each position, how many
-    # evaluated cells are truly gained / lost (per haplotype, and total). Events smaller
-    # than a caller's bin stay visible. Positions no cell's truth covers are left blank.
-    eval_cells = sorted(set(bins.cell))
-    seg_rows = []
-    for chrom in sorted(set(bins.chrom)):
-        per_cell = {}                     # cell -> {"mat": pieces, "pat": pieces}
-        bps = []
-        for c in eval_cells:
-            d = {h: tgroups.get((c, h, chrom)) for h in ("mat", "pat")}
-            per_cell[c] = d
-            for g in d.values():
-                if g is not None and not g.empty:
-                    bps += [g.start.values, g.end.values + 1]
-        if not bps:
-            continue
-        bp = np.unique(np.concatenate(bps)).astype(np.int64)
-        x = bp[:-1]                       # elementary intervals [bp[i], bp[i+1]), 1-based
-        ivs = {k: [] for k in ("cov", "mat_cov", "pat_cov", "mat_gain", "mat_loss",
-                               "pat_gain", "pat_loss", "total_gain", "total_loss")}
-        for c, d in per_cell.items():
-            cm, cp = lookup_cn(d["mat"], x), lookup_cn(d["pat"], x)
-            tot = cm + cp
-            masks = {"mat_cov": ~np.isnan(cm), "pat_cov": ~np.isnan(cp), "cov": ~np.isnan(tot),
-                     "mat_gain": cm > 1, "mat_loss": cm < 1, "pat_gain": cp > 1, "pat_loss": cp < 1,
-                     "total_gain": tot > 2, "total_loss": tot < 2}
-            for k, m in masks.items():
-                if m.any():
-                    ivs[k].append(merge_intervals(x[m], bp[1:][m]))
-        cnt = {k: count_coverage(v, bp) for k, v in ivs.items()}
-        df_ = pd.DataFrame({"chrom": chrom, "start": x, "end": bp[1:] - 1})
-        for h in ("mat", "pat", "total"):
-            cov = cnt[f"{h}_cov" if h != "total" else "cov"]
-            df_[f"{h}_covered"] = cov
-            for ev in ("gain", "loss"):
-                df_[f"{h}_{ev}"] = cnt[f"{h}_{ev}"]
-            df_[f"{h}_normal"] = cov - df_[f"{h}_gain"] - df_[f"{h}_loss"]
-        # join neighbouring intervals with identical counts
-        vals = df_.drop(columns=["chrom", "start", "end"]).values
-        keep = np.r_[True, (vals[1:] != vals[:-1]).any(axis=1) | (df_.start.values[1:] != df_.end.values[:-1] + 1)]
-        grp = np.cumsum(keep) - 1
-        df_ = df_.groupby(grp).agg({**{c_: "first" for c_ in df_.columns}, "end": "last"})
-        seg_rows.append(df_)
-    truth_ev = pd.concat(seg_rows, ignore_index=True) if seg_rows else pd.DataFrame()
-    truth_ev.to_csv(os.path.join(a.out_dir, "truth_event_counts.tsv"), sep="\t", index=False)
-
-    def classify(x, normal):
-        return np.select([x > normal, x < normal, x == normal], ["gain", "loss", "normal"], default="na")
-
-    cnt_cols = []
-    for lab, col, nrm in (("mat_true", "true_mat", 1), ("mat_pred", "pred_mat", 1), ("mat_pred_bin", "pred_mat_bin", 1),
-                          ("mat_pred_ideal", "pred_mat_ideal", 1),
-                          ("pat_true", "true_pat", 1), ("pat_pred", "pred_pat", 1), ("pat_pred_bin", "pred_pat_bin", 1),
-                          ("pat_pred_ideal", "pred_pat_ideal", 1),
-                          ("total_true", "true_total", 2), ("total_pred", "pred_total", 2)):
-        bins[f"_c_{lab}"] = classify(bins[col].values.astype(float), nrm)
-        cnt_cols.append(lab)
-    g = bins.groupby(["chrom", "start", "end"], sort=True)
-    bc = g.size().rename("n_cells").to_frame()
-    for lab in cnt_cols:
-        for ev in ("gain", "loss", "normal"):
-            bc[f"{lab}_{ev}"] = g[f"_c_{lab}"].apply(lambda v, ev=ev: int((v == ev).sum()))
-    bc = bc.reset_index()
-    bins.drop(columns=[c for c in bins.columns if c.startswith("_c_")], inplace=True)
-    bc.to_csv(os.path.join(a.out_dir, "bin_event_counts.tsv"), sep="\t", index=False)
-
-    with PdfPages(os.path.join(a.out_dir, "event_counts.pdf")) as pdf:
-        for suffix, heading in (("", "actual orientation"), ("_bin", "ideal phasing (per bin)"),
-                                ("_ideal", "allele-specific (per cell x bin)")):
-            rows_ = [("mat", "maternal (gain = CN > 1, loss = CN 0)"), ("pat", "paternal (gain = CN > 1, loss = CN 0)")]
-            if suffix == "":
-                rows_.append(("total", "total CN (gain > 2, loss < 2)"))
-            for chrom, cc in bc.groupby("chrom"):
-                fig, axs = plt.subplots(len(rows_), 1, figsize=(12.5, 3.2 * len(rows_)), squeeze=False)
-                tc = truth_ev[truth_ev.chrom == chrom] if len(truth_ev) else truth_ev
-                for ax, (h, title) in zip(axs[:, 0], rows_):
-                    for ev, colr in (("gain", "tab:red"), ("loss", "tab:blue")):
-                        tv = tc[f"{h}_{ev}"].values.astype(float)
-                        tv[tc[f"{h}_covered"].values == 0] = np.nan          # no truth anywhere: blank
-                        tx, ty = step_xy(tc.start.values, tc.end.values + 1, tv, 1000)
-                        px, py = step_xy(cc.start.values, cc.end.values, cc[f"{h}_pred{suffix}_{ev}"].values.astype(float), 1000)
-                        ax.plot(tx, ty, color=colr, lw=3, alpha=0.35, label=f"true {ev}")
-                        ax.plot(px, py, color=colr, lw=1.2, label=f"{LABEL} {ev}")
-                    ax.set_ylabel("cells", fontsize=8)
-                    top = max(1, *(cc[f"{h}_pred{suffix}_{ev}"].max() for ev in ("gain", "loss")),
-                              *(tc[f"{h}_{ev}"].max() for ev in ("gain", "loss") if len(tc)))
-                    ax.set_ylim(-0.02 * top, top * 1.15)        # headroom so lines at the max stay visible
-                    ax.set_title(title, fontsize=9, loc="left")
-                    ax.grid(axis="y", alpha=0.3)
-                    ax.legend(loc="upper right", fontsize=7, ncol=4)
-                axs[-1, 0].set_xlabel(f"{chrom} position (Mb, hg38)", fontsize=8)
-                fig.suptitle(f"Cells with a gain or loss - {heading}\n"
-                             f"true: from the lifted cn_mat segments (native resolution); "
-                             f"{LABEL}: per bin", fontsize=10)
-                fig.tight_layout()
-                pdf.savefig(fig); plt.close(fig)
-
-    # ---------------- heatmaps ----------------
-    cap = a.max_cn
-
-    def confusion(ax, t, pr, title, vmax):
-        ok = t.notna() & pr.notna()
-        exact = float(np.mean(t[ok].astype(int).values == pr[ok].astype(int).values)) if ok.any() else np.nan
-        t = np.clip(t[ok].astype(int), 0, cap); pr = np.clip(pr[ok].astype(int), 0, cap)
-        m = np.zeros((cap + 1, cap + 1), dtype=np.int64)
-        np.add.at(m, (pr.values, t.values), 1)
-        im = ax.imshow(np.where(m > 0, m, np.nan), origin="lower", cmap="viridis", norm=LogNorm(vmin=1, vmax=vmax))
-        for i in range(cap + 1):
-            for j in range(cap + 1):
-                if m[i, j]:
-                    ax.text(j, i, f"{m[i, j]}", ha="center", va="center", fontsize=6,
-                            color="white" if m[i, j] < vmax ** 0.5 else "black")
-        lab = [str(i) for i in range(cap)] + [f"{cap}+"]
-        ax.set_xticks(range(cap + 1)); ax.set_xticklabels(lab)
-        ax.set_yticks(range(cap + 1)); ax.set_yticklabels(lab)
-        ax.plot([-0.5, cap + 0.5], [-0.5, cap + 0.5], color="red", lw=0.8, ls="--")
-        # exact match uses real values, so e.g. 38 vs 40 is wrong even though both sit in the "cap+" box
-        ax.set_title(f"{title}\nexact match {exact:.3f} (n={m.sum()})", fontsize=9)
-        ax.set_xlabel("true copy number"); ax.set_ylabel(f"{LABEL} copy number")
-        return im
-
-    def heat_page(pdf, df, panels, heading):
-        fig, axs = plt.subplots(1, len(panels), figsize=(5 * len(panels), 5.2))
-        vmax = max(1, len(df))
-        for ax, (t, pr, title) in zip(np.atleast_1d(axs), panels):
-            im = confusion(ax, df[t], df[pr], title, vmax)
-        fig.colorbar(im, ax=axs, shrink=0.8, label="bins (log)")
-        fig.suptitle(heading, fontsize=10)
-        pdf.savefig(fig); plt.close(fig)
-
-    scored = bins[bins.scored]
-    with PdfPages(os.path.join(a.out_dir, "confusion_all_cells.pdf")) as pdf:
-        heat_page(pdf, scored,
-                  [("true_mat", "pred_mat", "maternal"), ("true_pat", "pred_pat", "paternal"),
-                   ("true_total", "pred_total", "total"), ("true_minor", "pred_minor", "minor allele (orientation-free)")],
-                  f"All cells, scored bins - actual orientation\n{orient_note}")
-        heat_page(pdf, scored,
-                  [("true_mat", "pred_mat_bin", "maternal (ideal phasing)"),
-                   ("true_pat", "pred_pat_bin", "paternal (ideal phasing)"),
-                   ("true_total", "pred_total", "total (unchanged)")],
-                  "All cells, scored bins - ideal phasing (per bin)\n"
-                  "each genomic bin uses one haplotype assignment for all cells, whichever fits the truth better")
-        heat_page(pdf, scored,
-                  [("true_mat", "pred_mat_ideal", "maternal (allele-specific)"),
-                   ("true_pat", "pred_pat_ideal", "paternal (allele-specific)"),
-                   ("true_total", "pred_total", "total (unchanged)")],
-                  "All cells, scored bins - allele-specific (per cell x bin)\n"
-                  "each cell/bin uses whichever haplotype assignment fits the truth better")
-        heat_page(pdf, bins[has_truth],
-                  [("true_mat", "pred_mat", "maternal"), ("true_pat", "pred_pat", "paternal"),
-                   ("true_total", "pred_total", "total")],
-                  "All bins with any aligned truth (includes breakpoint and partly unaligned bins) - actual orientation")
-        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-        for ax, h in zip(axs, ("mat", "pat", "total")):
-            x, y = bins[f"truemean_{h}"], bins[f"pred_{h}"]
-            ok = x.notna()
-            ax.hist2d(x[ok].clip(0, cap), y[ok].clip(0, cap),
-                      bins=[np.arange(0, cap + 0.26, 0.25), np.arange(-0.5, cap + 1)], norm=LogNorm(), cmap="viridis")
-            ax.plot([0, cap], [0, cap], color="red", lw=0.8, ls="--")
-            ax.set_xlabel("true CN (length-weighted mean over the bin's aligned truth)")
-            ax.set_ylabel(f"{LABEL} CN"); ax.set_title(h)
-        fig.suptitle("All bins - fractional truth for bins that straddle breakpoints", fontsize=10)
-        pdf.savefig(fig); plt.close(fig)
-
     # ---------------- per-cell tracks ----------------
     plot_cells = sorted(cells.cell)
     if a.max_cells_plot > 0:
@@ -795,7 +552,8 @@ def main():
     plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_bin.pdf"), "_bin", "ideal phasing (per bin)")
     plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_ideal.pdf"), "_ideal", "allele-specific (per cell x bin)")
 
-    print(f"\nwrote {a.out_dir}/per_cell_tracks.pdf, per_cell_tracks_bin.pdf, per_cell_tracks_ideal.pdf, confusion_all_cells.pdf, event_counts.pdf, bins.tsv, cells.tsv, summary.txt")
+    print(f"\nwrote {a.out_dir}/summary.txt, confusion_segments.pdf, section_confusion.tsv, "
+          f"per_cell_tracks.pdf, per_cell_tracks_bin.pdf, per_cell_tracks_ideal.pdf")
 
 
 if __name__ == "__main__":

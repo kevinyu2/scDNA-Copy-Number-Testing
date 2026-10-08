@@ -16,7 +16,7 @@
 # 3. standardize_calls.py: the caller's output -> common calls table.
 # 4. eval_calls.py: per-cell track plots, pooled confusion matrices, tables.
 #
-# Output: ${EVAL_DIR}/<phaser>_<caller>/
+# Output: ${EVAL_DIR}/<phaser>_<caller>_<binsize bp>/   e.g. eval/ugp_chisel_5000000/
 # All settings live in config.sh (EVAL section).
 
 LOG_TAG=eval
@@ -36,9 +36,9 @@ OUT_DIR=$(eval_out_dir "${PHASER}" "${CALLER}")
 TRUTH="${EVAL_TRUTH}"
 CALLS_STD="${OUT_DIR}/calls.tsv"
 case ${CALLER} in
-    hiscanner) LABEL="HiScanner (${PHASER})" ;;
+    hiscanner) LABEL="HiScanner (${PHASER}, $(caller_binsize hiscanner) bp bins)" ;;
     chisel)    CHISEL_EVAL_CN="${CHISEL_EVAL_CN:-corrected}"
-               LABEL="CHISEL (${PHASER}, ${CHISEL_EVAL_CN})" ;;
+               LABEL="CHISEL (${PHASER}, $(caller_binsize chisel) bp bins, ${CHISEL_EVAL_CN})" ;;
     *)         LABEL="${CALLER} (${PHASER})" ;;
 esac
 
@@ -123,6 +123,6 @@ python3 -B "${SCRIPTS}/eval_calls.py" \
     --orientation "${EVAL_ORIENTATION}" \
     --cells-per-page "${EVAL_CELLS_PER_PAGE}" \
     --max-cells-plot "${EVAL_MAX_CELLS_PLOT}" \
-    --max-cn "${EVAL_MAX_CN}"
+    --conf-unit "${EVAL_CONF_UNIT:-cells}"
 
 note "Done: ${OUT_DIR}"

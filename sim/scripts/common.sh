@@ -10,6 +10,31 @@
 die()  { echo "ERROR: $*" >&2; exit 1; }
 note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 
+# Bin sizes pinned by run_pipeline.sh at submit time win over config.sh, so editing
+# config.sh while jobs are queued cannot change the bin size of a run in flight.
+[[ -n ${PIN_CHISEL_BINSIZE:-} ]] && CHISEL_BINSIZE=${PIN_CHISEL_BINSIZE}
+[[ -n ${PIN_HS_BINSIZE:-} ]] && HS_BINSIZE=${PIN_HS_BINSIZE}
+
+# "5Mb" / "500kb" / "5000000" -> bp. Same rules as CHISEL's -b: whole numbers,
+# optional suffix kb or Mb (case-sensitive).
+to_bp() {
+    local v=$1
+    case $v in
+        *Mb) v=${v%Mb}; [[ $v =~ ^[0-9]+$ ]] && { echo $(( v * 1000000 )); return; } ;;
+        *kb) v=${v%kb}; [[ $v =~ ^[0-9]+$ ]] && { echo $(( v * 1000 )); return; } ;;
+        *)   [[ $v =~ ^[0-9]+$ ]] && { echo "$v"; return; } ;;
+    esac
+    die "bad bin size '$1' (use a whole number, optionally ending in kb or Mb, e.g. 5Mb, 500kb, 2000000)"
+}
+
+caller_binsize() {                                   # caller -> bin size in bp
+    case $1 in
+        hiscanner) to_bp "${HS_BINSIZE}" ;;
+        chisel)    to_bp "${CHISEL_BINSIZE}" ;;
+        *)         die "unknown caller '$1'" ;;
+    esac
+}
+
 # ============================================================
 # Routes
 # ============================================================
@@ -53,12 +78,13 @@ phaser_output() {
 }
 
 # ============================================================
-# Caller outputs:  ${PROJECT_DIR}/<caller>/<phaser>/
+# Caller outputs:  ${PROJECT_DIR}/<caller>_<binsize bp>/<phaser>/
+#   e.g. chisel_5000000/ugp/, hiscanner_500000/scan2/
 # ============================================================
 
-call_dir() { echo "${PROJECT_DIR}/$1/$2"; }          # caller phaser
+call_dir() { echo "${PROJECT_DIR}/$1_$(caller_binsize "$1")/$2"; }     # caller phaser
 
-# CHISEL's barcoded BAM does not depend on the phaser, so it is shared
+# CHISEL's barcoded BAM depends on neither the phaser nor the bin size, so it is shared
 CHISEL_PREP_DIR="${PROJECT_DIR}/chisel/prep"
 CHISEL_BARCODED_BAM="${CHISEL_PREP_DIR}/barcodedcells.bam"
 CHISEL_BARCODES="${CHISEL_PREP_DIR}/barcodedcells.info.tsv"
@@ -72,8 +98,9 @@ caller_output() {                                    # caller phaser
 }
 
 # ============================================================
-# Evaluation:  ${EVAL_DIR}/<phaser>_<caller>/   (lifted truth shared)
+# Evaluation:  ${EVAL_DIR}/<phaser>_<caller>_<binsize bp>/   (lifted truth shared)
+#   e.g. eval/ugp_chisel_5000000/
 # ============================================================
 
 EVAL_TRUTH="${EVAL_DIR}/truth_hg38.tsv"
-eval_out_dir() { echo "${EVAL_DIR}/$1_$2"; }         # phaser caller
+eval_out_dir() { echo "${EVAL_DIR}/$1_$2_$(caller_binsize "$2")"; }      # phaser caller

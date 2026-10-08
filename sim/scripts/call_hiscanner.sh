@@ -7,7 +7,7 @@
 #SBATCH --error=logs/call_hiscanner_%j.err
 
 # Submitted by run_pipeline.sh --caller hiscanner (only from --phaser scan2).
-# Output: ${PROJECT_DIR}/hiscanner/${PHASER}/output/final_calls
+# Output: ${PROJECT_DIR}/hiscanner_<binsize bp>/${PHASER}/output/final_calls
 #
 # All settings live in config.sh (HiScanner section).
 # This script writes HiScanner's metadata.txt, config.yaml and cluster.yaml
@@ -152,7 +152,7 @@ fasta_folder: ${FASTA_SPLIT_DIR}
 mappability_folder_stem: ${MAPPABILITY_STEM}
 
 rdr_only: ${HS_RDR_ONLY}
-binsize: ${HS_BINSIZE}
+binsize: $(to_bp "${HS_BINSIZE}")
 chrom_list: ${CHROM_YAML}
 lambda_range: ${HS_LAMBDA_RANGE}
 lambda_value: ${HS_LAMBDA}
