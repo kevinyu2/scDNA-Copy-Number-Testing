@@ -52,7 +52,8 @@ Bin size comes from `CHISEL_BINSIZE` / `HS_BINSIZE` in `config.sh`, or `--binsiz
 (`./run_pipeline.sh --phaser ugp --caller chisel --from call --binsize 1Mb`). It is pinned
 when you submit, so editing `config.sh` afterwards doesn't affect queued jobs.
 
-Eval outputs: `summary.txt` (accuracy + gain/normal/loss TP/TN/FP/FN), `confusion_segments.pdf`
+Eval outputs: `summary.txt` (accuracy + gain/normal/loss TP/TN/FP/FN), `confusion_segments_cn.pdf` and
+`confusion_segments_events.pdf` (true vs called CN, and gain/normal/loss; base-pair weighted)
 (+ `section_confusion.tsv`), `per_cell_tracks{,_bin,_ideal}.pdf`, and `calls.tsv` (the
 converted calls that were scored).
 

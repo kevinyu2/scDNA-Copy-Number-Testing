@@ -40,10 +40,12 @@ Haplotype orientation (which called haplotype, A or B, is maternal)
 Outputs (in --out-dir)
   summary.txt               accuracy over scored bins and gain / normal / loss
                             TP / TN / FP / FN tables, for all three orientation levels
-  confusion_segments.pdf    true CN vs called CN: all cn_mat segments pooled, then one page
-                            per segment; maternal and paternal x actual / ideal phasing /
-                            allele-specific. CN 0-4 exact, then groups of 5. --conf-unit cells
-                            (each cell x segment once, majority call) or bp (base-pair weighted)
+  confusion_segments_cn.pdf     true CN vs called CN (CN 0-4 exact, then groups of 5)
+  confusion_segments_events.pdf gain / normal / loss (3x3; gain = CN > 1, normal = 1, loss = 0)
+                            Both: all cn_mat segments pooled, then one page per segment;
+                            maternal and paternal x actual / ideal phasing / allele-specific.
+                            --conf-unit bp (default, base-pair weighted, in cell-Mb) or cells
+                            (each cell x segment once, majority call)
   section_confusion.tsv     the numbers behind it, exact CNs, both units
                             (hap, seg, level, true_cn, pred_cn, cells, bp)
   per_cell_tracks.pdf       maternal/paternal predicted vs true (actual orientation);
@@ -197,8 +199,8 @@ def main():
     ap.add_argument("--orientation", choices=["global", "cell"], default="global")
     ap.add_argument("--cells-per-page", type=int, default=4)
     ap.add_argument("--max-cells-plot", type=int, default=0)
-    ap.add_argument("--conf-unit", choices=["cells", "bp"], default="cells",
-                    help="confusion_segments.pdf: count cell x segments (majority call) or base pairs")
+    ap.add_argument("--conf-unit", choices=["cells", "bp"], default="bp",
+                    help="confusion_segments_*.pdf: base pairs (default) or cell x segments (majority call)")
     ap.add_argument("--y-linear-max", type=float, default=8, help="track plots: CN above this goes above an axis break")
     ap.add_argument("--merge-gap", type=int, default=1000)
     ap.add_argument("--max-mean-dev", type=float, default=0.5,
@@ -345,21 +347,28 @@ def main():
         unit = a.conf_unit
         val = "cells" if unit == "cells" else "bp"
 
-        def group(v):
+        # Two views of the same comparison:
+        #   cn     true CN vs called CN (0-4 exact, then groups of 5)
+        #   events gain / normal / loss per haplotype (gain = CN > 1, normal = 1, loss = 0)
+        STATES = ["loss", "normal", "gain"]
+
+        def group(v, kind):
             v = int(v)
+            if kind == "events":
+                return "loss" if v < 1 else "normal" if v == 1 else "gain"
             return v if v < 5 else 5 * (v // 5)          # 0..4 exact, then 5-9 -> 5, 10-14 -> 10, ...
 
         def glabel(g):
-            return f"{g}" if g < 5 else f"{g}-{g + 4}"
+            return g if isinstance(g, str) else (f"{g}" if g < 5 else f"{g}-{g + 4}")
 
         def fmt(v):
             return f"{int(v):,}" if unit == "cells" else f"{v / 1e6:,.1f}"
 
-        def draw(ax, df, cats, title):
+        def draw(ax, df, cats, title, kind):
             idx = {c: k for k, c in enumerate(cats)}
             m = np.zeros((len(cats), len(cats)))
             for t, p_, v in zip(df.true_cn, df.pred_cn, df[val]):
-                m[idx[group(t)], idx[group(p_)]] += v
+                m[idx[group(t, kind)], idx[group(p_, kind)]] += v
             tot = m.sum(axis=1, keepdims=True)
             with np.errstate(invalid="ignore", divide="ignore"):
                 frac = np.where(tot > 0, m / tot, np.nan)
@@ -368,34 +377,46 @@ def main():
             fs = 7.5 if n <= 6 else 6 if n <= 10 else 4.5 if n <= 16 else 3.2
             for r_ in range(n):
                 for c_ in range(n):
-                    if m[r_, c_] > 0:
-                        ax.text(c_, r_, f"{100 * frac[r_, c_]:.0f}%\n{fmt(m[r_, c_])}", ha="center", va="center",
+                    if m[r_, c_] > 0 or (kind == "events" and tot[r_, 0] > 0):
+                        ax.text(c_, r_, f"{100 * frac[r_, c_]:.1f}%\n{fmt(m[r_, c_])}", ha="center", va="center",
                                 fontsize=fs, color="white" if frac[r_, c_] > 0.6 else "black")
+                    elif kind == "events":
+                        ax.text(c_, r_, "-", ha="center", va="center", fontsize=8, color="0.6")
             labs = [glabel(c) for c in cats]
             lfs = 8 if n <= 10 else 6 if n <= 16 else 4.5
             ax.set_xticks(range(n)); ax.set_xticklabels(labs, fontsize=lfs, rotation=90 if n > 5 else 0)
             ax.set_yticks(range(n)); ax.set_yticklabels(labs, fontsize=lfs)
-            ax.set_xlabel(f"{LABEL} CN", fontsize=8)
-            ax.set_ylabel("true CN", fontsize=8)
+            what = "CN" if kind == "cn" else "state"
+            ax.set_xlabel(f"{LABEL} {what}", fontsize=8)
+            ax.set_ylabel(f"true {what}", fontsize=8)
             tw = df[val].sum()
-            exact = df.loc[df.true_cn == df.pred_cn, val].sum() / tw if tw else np.nan
-            ax.set_title(f"{title}\nexact match {exact:.3f}   (n = {fmt(tw)})", fontsize=8.5)
+            if kind == "cn":                              # exact values, not the groups
+                score = df.loc[df.true_cn == df.pred_cn, val].sum() / tw if tw else np.nan
+                ax.set_title(f"{title}\nexact match {score:.3f}   (n = {fmt(tw)})", fontsize=8.5)
+            else:
+                score = np.trace(m) / m.sum() if m.sum() else np.nan
+                ax.set_title(f"{title}\nagreement {score:.3f}   (n = {fmt(tw)})", fontsize=8.5)
 
-        how = ("each box: % of the true-CN row, then cells (each cell x segment once, called by the CN "
+        how = ("each box: % of the true row, then cells (each cell x segment once, called by the CN "
                "covering most of its compared bases)" if unit == "cells" else
-               "each box: % of the true-CN row, then cell-Mb (Mb summed over cells; e.g. 10 cells x 2 Mb = 20)")
+               "each box: % of the true row, then cell-Mb (Mb summed over cells; e.g. 10 cells x 2 Mb = 20)")
 
-        def page(pdf, df, heading):
+        def page(pdf, df, heading, kind):
             haps = [(h, n_) for h, n_ in (("mat", "maternal"), ("pat", "paternal")) if (df.hap == h).any()]
             if not haps:
                 return
             fig, axs = plt.subplots(len(haps), 3, figsize=(13, 4.9 * len(haps) + 0.9), squeeze=False)
             for r_, (h, hname) in enumerate(haps):
                 dh = df[df.hap == h]                      # one set of axis groups per haplotype row
-                cats = sorted({group(v) for v in np.concatenate([dh.true_cn.values, dh.pred_cn.values])})
+                if kind == "events":
+                    cats = STATES
+                else:
+                    cats = sorted({group(v, kind) for v in np.concatenate([dh.true_cn.values, dh.pred_cn.values])})
                 for c_, (_, lvl, lname) in enumerate(LEVELS):
-                    draw(axs[r_, c_], df[(df.hap == h) & (df.level == lvl)], cats, f"{hname} - {lname}")
-            fig.suptitle(f"{heading}\n{how}\nCN 0-4 exact, then groups of 5", fontsize=9.5)
+                    draw(axs[r_, c_], df[(df.hap == h) & (df.level == lvl)], cats, f"{hname} - {lname}", kind)
+            sub = ("CN 0-4 exact, then groups of 5" if kind == "cn" else
+                   "per haplotype: gain = CN > 1, normal = 1, loss = 0")
+            fig.suptitle(f"{heading}\n{how}\n{sub}", fontsize=9.5)
             fig.tight_layout(rect=[0, 0, 1, 1 - 0.75 / fig.get_figheight()], h_pad=2.5)
             pdf.savefig(fig); plt.close(fig)
 
@@ -403,15 +424,16 @@ def main():
             lo, hi = int(v.min()), int(v.max())
             return f"{lo}" if lo == hi else f"{lo}-{hi}"
 
-        with PdfPages(os.path.join(a.out_dir, "confusion_segments.pdf")) as pdf:
-            page(pdf, conf, "All cn_mat segments pooled, all cells")
-            segs = sorted(conf.seg.unique(), key=lambda v: int(v.rsplit(":", 1)[1].split("-")[0]))
-            for sg in segs:
-                g = maj[(maj.seg == sg) & (maj.level == "actual")]
-                rng = ", ".join(f"{h} CN {cn_range(g[g.hap == h].true_cn)}" for h in ("mat", "pat") if (g.hap == h).any())
-                page(pdf, conf[conf.seg == sg], f"Segment {sg}  ({rng}; {g.cell.nunique()} cells)")
+        segs = sorted(conf.seg.unique(), key=lambda v: int(v.rsplit(":", 1)[1].split("-")[0]))
+        for kind, fname in (("cn", "confusion_segments_cn.pdf"), ("events", "confusion_segments_events.pdf")):
+            with PdfPages(os.path.join(a.out_dir, fname)) as pdf:
+                page(pdf, conf, "All cn_mat segments pooled, all cells", kind)
+                for sg in segs:
+                    g = maj[(maj.seg == sg) & (maj.level == "actual")]
+                    rng = ", ".join(f"{h} CN {cn_range(g[g.hap == h].true_cn)}" for h in ("mat", "pat") if (g.hap == h).any())
+                    page(pdf, conf[conf.seg == sg], f"Segment {sg}  ({rng}; {g.cell.nunique()} cells)", kind)
     else:
-        print("[eval] truth file has no 'seg' column (made by an older lift_truth.py); skipping confusion_segments.pdf",
+        print("[eval] truth file has no 'seg' column (made by an older lift_truth.py); skipping confusion_segments_*.pdf",
               file=sys.stderr)
 
     # ---------------- metrics ----------------
@@ -563,7 +585,7 @@ def main():
     plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_bin.pdf"), "_bin", "ideal phasing (per bin)")
     plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_ideal.pdf"), "_ideal", "allele-specific (per cell x bin)")
 
-    print(f"\nwrote {a.out_dir}/summary.txt, confusion_segments.pdf, section_confusion.tsv, "
+    print(f"\nwrote {a.out_dir}/summary.txt, confusion_segments_cn.pdf, confusion_segments_events.pdf, section_confusion.tsv, "
           f"per_cell_tracks.pdf, per_cell_tracks_bin.pdf, per_cell_tracks_ideal.pdf")
 
 
