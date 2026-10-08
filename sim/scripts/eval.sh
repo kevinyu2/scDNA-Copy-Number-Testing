@@ -58,10 +58,15 @@ mkdir -p "${EVAL_LIFT_DIR}" "${OUT_DIR}"
 # 1. Haplotype -> hg38 alignments (cached)
 # ============================================================
 
+# Shared files are written to a temp name unique to this job, then renamed into place
+# (atomic), so evals running at the same time never write into the same file.
+TMP_TAG="tmp.${SLURM_JOB_ID:-nojob}.$(hostname -s).$$"
+
 HG38_CHR="${EVAL_LIFT_DIR}/hg38.${CHR}.fa"
 if [[ ! -s ${HG38_CHR} ]]; then
     note "Extracting ${CHR} from ${REF}"
-    samtools faidx "${REF}" "${CHR}" > "${HG38_CHR}.tmp" && mv "${HG38_CHR}.tmp" "${HG38_CHR}"
+    samtools faidx "${REF}" "${CHR}" > "${HG38_CHR}.${TMP_TAG}"
+    mv "${HG38_CHR}.${TMP_TAG}" "${HG38_CHR}"
 fi
 
 for hap in mat pat; do
@@ -73,8 +78,8 @@ for hap in mat pat; do
     fi
     note "Aligning ${hap} haplotype to hg38 ${CHR} (minimap2 asm5; tens of minutes)"
     minimap2 -c -x asm5 --cs --secondary=no -t "${SLURM_CPUS_PER_TASK:-8}" \
-        "${HG38_CHR}" "${FA}" > "${PAF}.tmp"
-    mv "${PAF}.tmp" "${PAF}"
+        "${HG38_CHR}" "${FA}" > "${PAF}.${TMP_TAG}"
+    mv "${PAF}.${TMP_TAG}" "${PAF}"
 done
 
 # ============================================================
@@ -88,8 +93,8 @@ python3 -B "${SCRIPTS}/lift_truth.py" \
     --query-chrom "${CHR}" \
     --target-chrom "${CHR}" \
     --merge-gap "${EVAL_MERGE_GAP:-1000}" \
-    --out "${TRUTH}.tmp.$$"
-mv "${TRUTH}.tmp.$$" "${TRUTH}"     # atomic: evals of other routes may read it concurrently
+    --out "${TRUTH}.${TMP_TAG}"
+mv "${TRUTH}.${TMP_TAG}" "${TRUTH}"     # atomic: evals of other routes may read it concurrently
 
 # ============================================================
 # 3. Caller output -> common calls table
