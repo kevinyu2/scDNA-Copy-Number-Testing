@@ -86,15 +86,38 @@ done
 # 2. Lift truth to hg38
 # ============================================================
 
-python3 -B "${SCRIPTS}/lift_truth.py" \
-    --cn-mat-dir "${CN_MAT_DIR}" \
-    --mat-paf "${EVAL_LIFT_DIR}/mat_to_hg38.${CHR}.paf" \
-    --pat-paf "${EVAL_LIFT_DIR}/pat_to_hg38.${CHR}.paf" \
-    --query-chrom "${CHR}" \
-    --target-chrom "${CHR}" \
-    --merge-gap "${EVAL_MERGE_GAP:-1000}" \
-    --out "${TRUTH}.${TMP_TAG}"
-mv "${TRUTH}.${TMP_TAG}" "${TRUTH}"     # atomic: evals of other routes may read it concurrently
+# Reused when it is newer than every input and was built with the same settings
+# (recorded in truth_hg38.tsv.stamp); otherwise rebuilt. Shared by all routes.
+MAT_PAF="${EVAL_LIFT_DIR}/mat_to_hg38.${CHR}.paf"
+PAT_PAF="${EVAL_LIFT_DIR}/pat_to_hg38.${CHR}.paf"
+STAMP="${TRUTH}.stamp"
+STAMP_TEXT="chr=${CHR} merge_gap=${EVAL_MERGE_GAP:-1000} cn_mat=${CN_MAT_DIR} mat_paf=${MAT_PAF} pat_paf=${PAT_PAF}"
+
+truth_is_current() {
+    [[ -s ${TRUTH} && -s ${STAMP} ]] || return 1
+    [[ $(cat "${STAMP}") == "${STAMP_TEXT}" ]] || return 1
+    # any input newer than the truth file -> stale
+    [[ -z $(find "${CN_MAT_DIR}" "${MAT_PAF}" "${PAT_PAF}" "${SCRIPTS}/lift_truth.py" \
+               -newer "${TRUTH}" -print -quit) ]]
+}
+
+if truth_is_current; then
+    note "Reusing ${TRUTH} (inputs unchanged)"
+else
+    note "Lifting truth to hg38"
+    python3 -B "${SCRIPTS}/lift_truth.py" \
+        --cn-mat-dir "${CN_MAT_DIR}" \
+        --mat-paf "${MAT_PAF}" \
+        --pat-paf "${PAT_PAF}" \
+        --query-chrom "${CHR}" \
+        --target-chrom "${CHR}" \
+        --merge-gap "${EVAL_MERGE_GAP:-1000}" \
+        --out "${TRUTH}.${TMP_TAG}"
+    echo "${STAMP_TEXT}" > "${STAMP}.${TMP_TAG}"
+    # atomic renames: evals of other routes may read these concurrently
+    mv "${TRUTH}.${TMP_TAG}" "${TRUTH}"
+    mv "${STAMP}.${TMP_TAG}" "${STAMP}"
+fi
 
 # ============================================================
 # 3. Caller output -> common calls table

@@ -313,11 +313,13 @@ def main():
               ("_ideal", "allele_specific", "allele-specific")]
     if "seg" in truth.columns:
         parts = []
+        # index the truth once (a per-cell filter of the whole table is quadratic in cells)
+        truth_by = {k: g for k, g in truth.groupby(["cell", "hap", "chrom"], sort=False)}
         for (cell, chrom), cb in bins.groupby(["cell", "chrom"]):
             bs, be = cb.start.values, cb.end.values
             for h in ("mat", "pat"):
-                tg = truth[(truth.cell == cell) & (truth.hap == h) & (truth.chrom == chrom)]
-                if tg.empty:
+                tg = truth_by.get((cell, h, chrom))
+                if tg is None or tg.empty:
                     continue
                 ts, te = tg.start.values, tg.end.values
                 ov = np.clip(np.minimum(te[:, None], be[None, :]) - np.maximum(ts[:, None], bs[None, :]), 0, None)
