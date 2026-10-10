@@ -46,7 +46,8 @@ CHISEL_UPPERK="${CHISEL_UPPERK:-100}"
 # ============================================================
 
 case ${PHASER} in
-    ugp) VCF="${UGP_PHASED_VCF}"; SAMPLE="" ;;          # one sample (the bulk)
+    ugp)     VCF="${UGP_PHASED_VCF}"; SAMPLE="" ;;              # one sample (the bulk)
+    perfect) VCF="${PERFECT_PHASED_VCF}"; SAMPLE="phasedgt" ;;  # true phase (phase_perfect.sh)
     *)   die "CHISEL with phaser '${PHASER}' is not implemented (${ROUTE_TODO[${PHASER}:chisel]:-})" ;;
 esac
 

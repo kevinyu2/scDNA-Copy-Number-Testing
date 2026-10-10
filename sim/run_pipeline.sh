@@ -26,8 +26,14 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
   --dry-run      print the sbatch commands without submitting
   --list         show implemented routes and exit
 
+Prints the last submitted job ID on stdout (everything else goes to stderr), so
+  P=$(./run_pipeline.sh --phaser perfect --to phase)
+  ./run_pipeline.sh --phaser perfect --caller chisel --from call --after "$P"
+
 Stages
   phase   scan2: SCAN2 (GATK + Eagle)       ugp: Universal Genotyping Pipeline (bulk mode)
+          perfect: true phase from the HG002 assemblies (+ per-cell allele depths for
+                   HiScanner); one run serves both callers
   call    hiscanner: HiScanner              chisel: chisel_prep (barcoded BAM) + CHISEL
   eval    lift truth to hg38, convert calls to a common table, score them
 
@@ -196,10 +202,13 @@ fi
 if runs eval; then
     J=$(submit eval "${PREV}" scripts/eval.sh)
     SUMMARY+=("eval: ${J}")
+    PREV=${J}
 fi
 
 for s in "${SUMMARY[@]}"; do note "  ${s}"; done
 if [[ ${DRY} != true ]]; then
+    runs phase && note "Phasing: $(dirname "$(phaser_output "${PHASER}")")"
     runs call && note "Calls:   $(call_dir "${CALLER}" "${PHASER}")"
     runs eval && note "Results: $(eval_out_dir "${PHASER}" "${CALLER}")"
 fi
+echo "${PREV}"      # last job ID, for --after in a later command

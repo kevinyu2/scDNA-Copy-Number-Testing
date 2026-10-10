@@ -81,6 +81,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--read-length",
+    type = int,
+    default = 150,
+    help = "Length of each read in a pair (bp). Keep it >= the mappability track's k-mer length used by HiScanner"
+)
+
+parser.add_argument(
     "--out",
     type = str,
     default = './out',
@@ -202,8 +209,8 @@ def run_sim(args) :
                     "dwgsim",
                     "-H",
                     "-C", str(coverage/2),
-                    "-1", "100",
-                    "-2", "100",
+                    "-1", str(args.read_length),
+                    "-2", str(args.read_length),
                     "-e", "0",
                     "-E", "0",
                     "-r", "0",

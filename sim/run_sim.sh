@@ -4,6 +4,9 @@
 #
 # Usage: ./run_sim.sh [--cells-only | --bulk-only] [--dry-run] [-- <run_pipeline.sh args>]
 #
+# Prints the simulation job IDs (colon-separated) on stdout, for --after:
+#   SIM=$(./run_sim.sh); ./run_pipeline.sh --phaser ugp --caller chisel --after "$SIM"
+#
 #   ./run_sim.sh                                      simulate only
 #   ./run_sim.sh -- --phaser ugp --caller chisel      simulate, then the pipeline,
 #                                                     chained with afterok dependencies
@@ -22,7 +25,7 @@ while (( $# )); do
         --bulk-only)  CELLS=false; shift ;;
         --dry-run)    DRY=true; shift ;;
         --)           shift; PIPE_ARGS=("$@"); break ;;
-        -h|--help)    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)            die "unknown option '$1' (pipeline options go after --)" ;;
     esac
 done
@@ -67,4 +70,5 @@ if (( ${#PIPE_ARGS[@]} )); then
     ./run_pipeline.sh "${PIPE_ARGS[@]}" --after "${DEPS}" "${EXTRA[@]+"${EXTRA[@]}"}"
 else
     note "Next: ./run_pipeline.sh --phaser <${PHASERS// /|}> --caller <${CALLERS// /|}> --after ${DEPS}"
+    echo "${DEPS}"
 fi

@@ -6,8 +6,17 @@
 #SBATCH --output=logs/call_hiscanner_%j.out
 #SBATCH --error=logs/call_hiscanner_%j.err
 
-# Submitted by run_pipeline.sh --caller hiscanner (only from --phaser scan2).
+# Submitted by run_pipeline.sh --caller hiscanner (--phaser scan2 or perfect).
 # Output: ${PROJECT_DIR}/hiscanner_<binsize bp>/${PHASER}/output/final_calls
+#
+# Input folder ("scan2_output" in HiScanner's config): scan2 -> SCAN2's output;
+# perfect -> ${PROJECT_DIR}/perfect/hiscanner_input (same file names, true phase).
+#
+# Normalization: HiScanner's Snakefile runs BIC-seq with -p=0.0001 (fraction of
+# genome positions sampled to fit the GC/mappability model), which at ~0.1x on one
+# chromosome leaves only ~15 reads in the fit. This script copies the installed
+# Snakefile into the run folder (HiScanner prefers ./Snakefile over its own) with
+# -p=${HS_NORM_P} -l=${HS_NORM_READLEN} -s=${HS_NORM_FRAGSIZE}.
 #
 # All settings live in config.sh (HiScanner section).
 # This script writes HiScanner's metadata.txt, config.yaml and cluster.yaml
@@ -22,7 +31,8 @@ LOG_TAG=call_hiscanner
 source "${CONFIG_FILE:-./config.sh}"
 source ./scripts/common.sh
 PHASER=${PHASER:-scan2}
-[[ ${PHASER} == scan2 ]] || die "HiScanner from phaser '${PHASER}' is not implemented (${ROUTE_TODO[${PHASER}:hiscanner]:-})"
+route_ok "${PHASER}" hiscanner || die "HiScanner from phaser '${PHASER}' is not implemented (${ROUTE_TODO[${PHASER}:hiscanner]:-})"
+HS_INPUT=$(hs_input_dir "${PHASER}")
 HS_DIR=$(call_dir hiscanner "${PHASER}")
 
 source ${CONDA}
@@ -30,7 +40,6 @@ conda activate ${HS_ENV}
 
 set -euo pipefail
 
-SCAN2_OUT="${SCAN2_DIR}"
 BAM_DIR="${CELL_BAM_DIR}"
 BULK_SAMPLE="bulk"
 HS_OUT="${HS_DIR}/output"
@@ -44,6 +53,10 @@ HS_AUTO_EXCLUDE="${HS_AUTO_EXCLUDE:-true}"
 HS_NORM_RETRIES="${HS_NORM_RETRIES:-1}"
 HS_MAX_EXCLUDE_PCT="${HS_MAX_EXCLUDE_PCT:-5}"
 HS_RESET_EXCLUSIONS="${HS_RESET_EXCLUSIONS:-false}"
+HS_NORM_P="${HS_NORM_P:-0.01}"
+HS_NORM_READLEN="${HS_NORM_READLEN:-150}"
+HS_NORM_FRAGSIZE="${HS_NORM_FRAGSIZE:-500}"
+HS_MAPPABILITY_K="${HS_MAPPABILITY_K:-150}"
 
 mkdir -p "${HS_DIR}"
 
@@ -57,10 +70,10 @@ for tool in hiscanner bcftools samtools snakemake Rscript; do
 done
 
 for f in \
-    "${SCAN2_OUT}/gatk/hc_raw.mmq60.vcf.gz" \
-    "${SCAN2_OUT}/gatk/hc_raw.mmq60.vcf.gz.tbi" \
-    "${SCAN2_OUT}/shapeit/phased_hets.vcf.gz" \
-    "${SCAN2_OUT}/shapeit/phased_hets.vcf.gz.tbi" \
+    "${HS_INPUT}/gatk/hc_raw.mmq60.vcf.gz" \
+    "${HS_INPUT}/gatk/hc_raw.mmq60.vcf.gz.tbi" \
+    "${HS_INPUT}/shapeit/phased_hets.vcf.gz" \
+    "${HS_INPUT}/shapeit/phased_hets.vcf.gz.tbi" \
     "${BULK_BAM}"; do
     [[ -f $f ]] || die "missing $f"
 done
@@ -72,9 +85,22 @@ for c in ${HS_CHROMS}; do
 done
 
 # bcftools reads only the header; avoids the zcat|grep -m1 SIGPIPE problem under pipefail
-LAST_SAMPLE=$(bcftools query -l "${SCAN2_OUT}/shapeit/phased_hets.vcf.gz" | tail -n 1)
+LAST_SAMPLE=$(bcftools query -l "${HS_INPUT}/shapeit/phased_hets.vcf.gz" | tail -n 1)
 [[ ${LAST_SAMPLE} == phasedgt ]] \
     || die "phased_hets.vcf.gz sample column is '${LAST_SAMPLE}', not phasedgt"
+
+# Reads shorter than the mappability k-mer make the track claim positions the reads
+# cannot map uniquely (HiScanner README: "not valid, will cause false positives")
+FIRST_BAM=$(ls "${BAM_DIR}"/*.bam | head -n 1)
+READ_LEN=$(set +o pipefail; samtools view "${FIRST_BAM}" | awk 'NR > 2000 { exit } { l = length($10); if (l > m) m = l } END { print m + 0 }')
+(( READ_LEN >= HS_MAPPABILITY_K )) \
+    || die "reads in ${FIRST_BAM} are ${READ_LEN} bp but the mappability track is ${HS_MAPPABILITY_K}-mer (HS_MAPPABILITY_K); re-simulate with SIM_READ_LEN >= ${HS_MAPPABILITY_K} or use a shorter track"
+(( READ_LEN == HS_NORM_READLEN )) \
+    || note "WARNING: reads are ${READ_LEN} bp but HS_NORM_READLEN=${HS_NORM_READLEN}"
+[[ ${HS_NORM_P} =~ ^(0?\.[0-9]+|1(\.0*)?)$ ]] && awk -v p="${HS_NORM_P}" 'BEGIN { exit !(p > 0 && p <= 1) }' \
+    || die "HS_NORM_P='${HS_NORM_P}' must be a fraction in (0, 1]"
+[[ ${HS_NORM_READLEN} =~ ^[1-9][0-9]*$ && ${HS_NORM_FRAGSIZE} =~ ^[1-9][0-9]*$ ]] \
+    || die "HS_NORM_READLEN / HS_NORM_FRAGSIZE must be positive integers"
 
 if [[ ${HS_USE_CLUSTER} == true && -z ${SLURM_ACCOUNT} ]]; then
     die "HS_USE_CLUSTER=true but SLURM_ACCOUNT is empty (HiScanner always passes --account to sbatch)"
@@ -130,8 +156,8 @@ note "Wrote ${META}: ${N_CELLS} cells + bulk"
 # Every bamID must be a sample in hc_raw.mmq60.vcf.gz, or HiScanner's bcftools -s fails
 MISSING=$(comm -23 \
     <(tail -n +2 "${META}" | cut -f1 | LC_ALL=C sort) \
-    <(bcftools query -l "${SCAN2_OUT}/gatk/hc_raw.mmq60.vcf.gz" | LC_ALL=C sort))
-[[ -z ${MISSING} ]] || die "bamIDs not found in SCAN2 VCF (read-group SM mismatch?):
+    <(bcftools query -l "${HS_INPUT}/gatk/hc_raw.mmq60.vcf.gz" | LC_ALL=C sort))
+[[ -z ${MISSING} ]] || die "bamIDs not found in ${HS_INPUT}/gatk/hc_raw.mmq60.vcf.gz (read-group SM mismatch?):
 ${MISSING}"
 
 # ============================================================
@@ -143,7 +169,7 @@ CHROM_YAML="[${CHROM_YAML%, }]"
 
 cat > "${HS_DIR}/config.yaml" <<EOF
 # Generated by scripts/call_hiscanner.sh from config.sh -- edit config.sh, not this file
-scan2_output: ${SCAN2_OUT}
+scan2_output: ${HS_INPUT}
 metadata_path: ${META}
 outdir: ${HS_OUT}
 use_multisample_segmentation: ${HS_MULTISAMPLE}
@@ -303,7 +329,23 @@ run_normalize_with_recovery() {
 # Run
 # ============================================================
 
-# HiScanner looks for config.yaml / cluster.yaml in the working directory
+# ============================================================
+# Snakefile with BIC-seq normalization settings for this data
+# ============================================================
+
+# HiScanner copies ./Snakefile (if present) into output/.workflow/ instead of its own,
+# so the installed package is never edited (safe with concurrent HiScanner runs).
+SRC_SNAKEFILE=$(python -c 'import os, hiscanner; print(os.path.join(os.path.dirname(hiscanner.__file__), "resources", "Snakefile"))')
+[[ -s ${SRC_SNAKEFILE} ]] || die "cannot find HiScanner's Snakefile (looked at ${SRC_SNAKEFILE})"
+(( $(grep -cF -- '-p=0.0001' "${SRC_SNAKEFILE}") == 1 )) \
+    || die "expected exactly one '-p=0.0001' in ${SRC_SNAKEFILE} (HiScanner version changed?); check its run_bicseq_norm rule"
+NORM_OPTS="-p=${HS_NORM_P} -l=${HS_NORM_READLEN} -s=${HS_NORM_FRAGSIZE}"
+sed "s/-p=0\.0001/${NORM_OPTS}/" "${SRC_SNAKEFILE}" > "${HS_DIR}/Snakefile.tmp"
+grep -qF -- "${NORM_OPTS}" "${HS_DIR}/Snakefile.tmp" || die "patching the BIC-seq options into the Snakefile failed"
+mv "${HS_DIR}/Snakefile.tmp" "${HS_DIR}/Snakefile"
+note "BIC-seq normalization: -p=${HS_NORM_P} -l=${HS_NORM_READLEN} -s=${HS_NORM_FRAGSIZE} (HiScanner default: -p=0.0001, -l 50, -s 300)"
+
+# HiScanner looks for config.yaml / cluster.yaml / Snakefile in the working directory
 cd "${HS_DIR}"
 
 hiscanner validate config.yaml

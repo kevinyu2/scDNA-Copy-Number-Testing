@@ -33,7 +33,8 @@ python "./scripts/scDNA_sim.py" \
     --ado-mean "${ADO_MEAN}" \
     --ado-var "${ADO_VAR}" \
     --coverage-mean "${COVERAGE_MEAN}" \
-    --coverage-var "${COVERAGE_VAR}"
+    --coverage-var "${COVERAGE_VAR}" \
+    --read-length "${SIM_READ_LEN}"
 
 mkdir -p "${CELL_BAM_DIR}"
 

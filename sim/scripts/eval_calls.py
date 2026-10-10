@@ -52,6 +52,10 @@ Outputs (in --out-dir)
                             shows all data, scoring is not marked
   per_cell_tracks_bin.pdf   same, ideal phasing (per bin; purple ticks = bin flipped vs actual)
   per_cell_tracks_ideal.pdf same, allele-specific (purple ticks = A/B swapped)
+
+--levels allele_specific (used for HiScanner) keeps only the allele-specific level in
+every output: such callers report CN_A|CN_B as major|minor (BAF mirrored per bin), so
+there is no haplotype orientation to score. per_cell_tracks.pdf and _bin.pdf are not made.
 """
 import argparse
 import os
@@ -206,8 +210,12 @@ def main():
     ap.add_argument("--max-mean-dev", type=float, default=0.5,
                     help="skip bins where length-weighted mean truth differs from majority truth by more than this "
                          "(small high-CN pieces such as ecDNA dominate read depth there)")
+    ap.add_argument("--levels", choices=["all", "allele_specific"], default="all",
+                    help="all: actual / ideal phasing / allele-specific; allele_specific: only that level "
+                         "(for callers whose A|B is major|minor, e.g. HiScanner)")
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
+    PHASED = a.levels == "all"
     LABEL = a.caller_name
 
     truth = pd.read_csv(a.truth, sep="\t")
@@ -311,6 +319,8 @@ def main():
     # panel titles always uses exact values, not the groups.
     LEVELS = [("", "actual", "actual"), ("_bin", "ideal_phasing", "ideal phasing (per bin)"),
               ("_ideal", "allele_specific", "allele-specific")]
+    if not PHASED:
+        LEVELS = [lv for lv in LEVELS if lv[1] == "allele_specific"]
     if "seg" in truth.columns:
         parts = []
         # index the truth once (a per-cell filter of the whole table is quadratic in cells)
@@ -407,7 +417,9 @@ def main():
             haps = [(h, n_) for h, n_ in (("mat", "maternal"), ("pat", "paternal")) if (df.hap == h).any()]
             if not haps:
                 return
-            fig, axs = plt.subplots(len(haps), 3, figsize=(13, 4.9 * len(haps) + 0.9), squeeze=False)
+            nl = len(LEVELS)
+            fig, axs = plt.subplots(len(haps), nl, figsize=(13 if nl == 3 else 7.5, 4.9 * len(haps) + 1.2),
+                                    squeeze=False)
             for r_, (h, hname) in enumerate(haps):
                 dh = df[df.hap == h]                      # one set of axis groups per haplotype row
                 if kind == "events":
@@ -418,8 +430,13 @@ def main():
                     draw(axs[r_, c_], df[(df.hap == h) & (df.level == lvl)], cats, f"{hname} - {lname}", kind)
             sub = ("CN 0-4 exact, then groups of 5" if kind == "cn" else
                    "per haplotype: gain = CN > 1, normal = 1, loss = 0")
-            fig.suptitle(f"{heading}\n{how}\n{sub}", fontsize=9.5)
-            fig.tight_layout(rect=[0, 0, 1, 1 - 0.75 / fig.get_figheight()], h_pad=2.5)
+            if nl < 3:                                    # narrow figure: wrap the long explanation
+                import textwrap
+                how_txt = "\n".join(textwrap.wrap(how, 95))
+            else:
+                how_txt = how
+            fig.suptitle(f"{heading}\n{how_txt}\n{sub}", fontsize=9.5 if nl == 3 else 8.5)
+            fig.tight_layout(rect=[0, 0, 1, 1 - (0.75 if nl == 3 else 1.0) / fig.get_figheight()], h_pad=2.5)
             pdf.savefig(fig); plt.close(fig)
 
         def cn_range(v):
@@ -431,7 +448,7 @@ def main():
             with PdfPages(os.path.join(a.out_dir, fname)) as pdf:
                 page(pdf, conf, "All cn_mat segments pooled, all cells", kind)
                 for sg in segs:
-                    g = maj[(maj.seg == sg) & (maj.level == "actual")]
+                    g = maj[(maj.seg == sg) & (maj.level == LEVELS[0][1])]
                     rng = ", ".join(f"{h} CN {cn_range(g[g.hap == h].true_cn)}" for h in ("mat", "pat") if (g.hap == h).any())
                     page(pdf, conf[conf.seg == sg], f"Segment {sg}  ({rng}; {g.cell.nunique()} cells)", kind)
     else:
@@ -486,8 +503,10 @@ def main():
         f"  not scored, straddle a true breakpoint: {int(bins.straddles.sum())}",
         f"  not scored, small high-CN truth pieces (e.g. ecDNA; mean vs majority > {a.max_mean_dev}): {int(bins.depth_mismatch.sum())}",
         f"  not scored, < {a.min_covered:.0%} of bin has aligned truth: {int((has_truth & ~covered_ok & ~straddles & ~mean_dev).sum() + (~has_truth).sum())}",
-        orient_note,
+        orient_note if PHASED else
+        "levels: allele-specific only (the caller reports CN_A|CN_B as major|minor, so A/B carries no phase)",
         "",
+    ] + ([
         "accuracy over scored bins (exact match)        actual    ideal phasing   allele-specific",
         "                                                          (per bin)       (per cell x bin)",
         f"  maternal                                      {mt['acc_mat']:.3f}     {mt['acc_mat_bin']:.3f}           {mt['acc_mat_ideal']:.3f}",
@@ -501,6 +520,16 @@ def main():
         f"{bins[bins.bin_flipped].groupby(['chrom', 'start', 'end']).ngroups}/{bins.groupby(['chrom', 'start', 'end']).ngroups}",
         "  (actual -> ideal phasing = cost of phase switch errors; ideal phasing -> allele-specific = events",
         "   put on different haplotypes in different cells, which phasing cannot fix)",
+    ] if PHASED else [
+        "accuracy over scored bins (exact match)        allele-specific (sorted major/minor, per cell x bin)",
+        f"  maternal                                      {mt['acc_mat_ideal']:.3f}",
+        f"  paternal                                      {mt['acc_pat_ideal']:.3f}",
+        f"  both haplotypes                               {mt['acc_both_ideal']:.3f}",
+        f"  mean |error| per haplotype                    {mt['mae_hap_ideal']:.3f}",
+        f"  total CN (orientation-free)                   {mt['acc_total']:.3f}",
+        f"  total CN mean |error|                         {mt['mae_total']:.3f}",
+        "  (maternal/paternal = the true haplotype each called allele was matched to, whichever fits better)",
+    ]) + [
         "",
         "gain / normal / loss over scored bins, one-vs-rest (haplotype: gain = CN > 1, normal = 1, loss = 0;",
         "total: gain > 2, normal = 2, loss < 2). Counts are cell x bin pairs.",
@@ -516,8 +545,9 @@ def main():
 
     head = f"    {'':18s}{'TP':>10s}{'TN':>10s}{'FP':>10s}{'FN':>10s}{'precision':>11s}{'recall':>8s}{'specificity':>13s}"
     blocks = [(f"{lvl} - {hname}", t_, f"pred_{h}{sfx}", 1)
-              for lvl, sfx in (("actual", ""), ("ideal phasing (per bin)", "_bin"),
-                               ("allele-specific (per cell x bin)", "_ideal"))
+              for lvl, sfx in ((("actual", ""), ("ideal phasing (per bin)", "_bin"),
+                                ("allele-specific (per cell x bin)", "_ideal")) if PHASED else
+                               (("allele-specific (per cell x bin)", "_ideal"),))
               for h, hname, t_ in (("mat", "maternal", "true_mat"), ("pat", "paternal", "true_pat"))]
     blocks.append(("total CN (orientation-free)", "true_total", "pred_total", 2))
     for title, t_, p_, nrm in blocks:
@@ -527,9 +557,10 @@ def main():
         "",
         "  (one-vs-rest per class: FP = called this class but truth is not; FN = truth is this class but not called)",
         "",
-        f"per-cell both-haplotype accuracy: actual median {cells.acc_both.median():.3f}, "
-        f"ideal phasing median {cells.acc_both_bin.median():.3f}, "
-        f"allele-specific median {cells.acc_both_ideal.median():.3f}",
+        (f"per-cell both-haplotype accuracy: actual median {cells.acc_both.median():.3f}, "
+         f"ideal phasing median {cells.acc_both_bin.median():.3f}, "
+         f"allele-specific median {cells.acc_both_ideal.median():.3f}") if PHASED else
+        f"per-cell both-haplotype accuracy (allele-specific): median {cells.acc_both_ideal.median():.3f}",
     ]
     if bins.gamma.notna().any():
         summ.append(f"cells {LABEL} called as WGD-scaled (gamma > 3): {(cells.gamma > 3).sum()}/{len(cells)}")
@@ -583,12 +614,20 @@ def main():
                 fig.tight_layout()
                 pdf.savefig(fig); plt.close(fig)
 
-    plot_tracks(os.path.join(a.out_dir, "per_cell_tracks.pdf"), "", "actual orientation")
-    plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_bin.pdf"), "_bin", "ideal phasing (per bin)")
-    plot_tracks(os.path.join(a.out_dir, "per_cell_tracks_ideal.pdf"), "_ideal", "allele-specific (per cell x bin)")
+    track_sets = [("per_cell_tracks.pdf", "", "actual orientation"),
+                  ("per_cell_tracks_bin.pdf", "_bin", "ideal phasing (per bin)"),
+                  ("per_cell_tracks_ideal.pdf", "_ideal", "allele-specific (per cell x bin)")]
+    made = []
+    for fname, sfx, heading in track_sets:
+        path = os.path.join(a.out_dir, fname)
+        if PHASED or sfx == "_ideal":
+            plot_tracks(path, sfx, heading)
+            made.append(fname)
+        elif os.path.exists(path):          # from an earlier run with all levels
+            os.remove(path)
 
     print(f"\nwrote {a.out_dir}/summary.txt, confusion_segments_cn.pdf, confusion_segments_events.pdf, section_confusion.tsv, "
-          f"per_cell_tracks.pdf, per_cell_tracks_bin.pdf, per_cell_tracks_ideal.pdf")
+          + ", ".join(made))
 
 
 if __name__ == "__main__":

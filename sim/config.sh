@@ -27,6 +27,8 @@ ADO_MEAN=3
 ADO_VAR=1
 COVERAGE_MEAN=0.1
 COVERAGE_VAR=0.3
+SIM_READ_LEN=150          # bp per read (paired), cells and bulk. Must be >= the HiScanner
+                          # mappability k-mer (HS_MAPPABILITY_K; the hg38 track is 150mer)
 
 
 # References
@@ -58,6 +60,7 @@ HS_ENV="${ENV}"                                   # change if HiScanner lives in
 # Reference files
 FASTA_SPLIT_DIR="${RESOURCES_DIR%/}/hg38_split"   # must contain <chrom>.fasta (e.g. chr1.fasta)
 MAPPABILITY_STEM="${RESOURCES_DIR%/}/hg38_mappability/150mer."
+HS_MAPPABILITY_K=150                 # k-mer length of that track; call_hiscanner.sh refuses shorter reads
 
 # Chromosomes to analyze (space-separated, names as in the BAM/VCF)
 HS_CHROMS="${CHR}"
@@ -79,6 +82,14 @@ HS_ADO_PLOTS=true
 HS_AGGREGATE_K=true                 # aggregate_every_k_snp
 HS_K=5
 HS_THREADS=16
+
+# BIC-seq normalization (patched into a copy of HiScanner's Snakefile by call_hiscanner.sh)
+HS_NORM_P=0.01                       # fraction of positions sampled to fit the GC/mappability model.
+                                     # HiScanner's 0.0001 leaves ~15 reads in the fit at 0.1x on chr1
+                                     # (unstable "expected", random normalize failures). 0.01 -> ~1.5k reads,
+                                     # ~2M rows in the R fit (fits in run_bicseq_norm's 16G)
+HS_NORM_READLEN=150                  # BIC-seq -l (its default is 50); = SIM_READ_LEN
+HS_NORM_FRAGSIZE=500                 # BIC-seq -s (default 300); dwgsim's default outer distance is 500
 
 # Run control
 HS_USE_CLUSTER=true              
@@ -119,6 +130,17 @@ UGP_THREADS_PHASE=16       # Eagle uses all of these
 UGP_THREADS_PILEUP=1       # per-cell jobs (percell mode): 1 each lets 16 cells run at once
 UGP_THREADS_MOSDEPTH=1
 UGP_EXECUTOR=local         # local = run inside this job (best for bulk mode); slurm = one cluster job per step
+
+# ============================================================
+# Perfect phasing (--phaser perfect): true phased hets from the HG002 assemblies
+# ============================================================
+# Output: ${PROJECT_DIR}/perfect/ (phased_hets.vcf.gz for both callers, hiscanner_input/ for HiScanner)
+PERFECT_ENV="${ENV}"         # needs minimap2, samtools, bcftools, bgzip/tabix, python3 + numpy
+PERFECT_MIN_MAPQ_ASM=5       # haplotype -> hg38 alignments (eval's cached PAFs) used for het calling
+PERFECT_INDEL_PAD=10         # skip SNPs within this many bp of an indel in either haplotype
+PERFECT_MIN_MAPQ=60          # read MAPQ for HiScanner's allele depths (SCAN2's file is "mmq60")
+PERFECT_MIN_BASEQ=13         # base quality for allele depths (bcftools default)
+PERFECT_CHUNK_CELLS=50       # BAMs per bcftools mpileup job (they run in parallel)
 
 # ============================================================
 # CHISEL

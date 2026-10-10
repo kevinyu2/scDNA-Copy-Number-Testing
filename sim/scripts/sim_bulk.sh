@@ -49,7 +49,7 @@ fi
 
 echo "Running bulk DWGSIM..."
 
-dwgsim -H -C 15 -1 150 -2 150 -e 0 -E 0 -r 0 "${SIM_FULL_FA}" "${BULK_FASTQ_DIR}/bulk"   # 15 per haplotype ≈ 30x total
+dwgsim -H -C 15 -1 "${SIM_READ_LEN}" -2 "${SIM_READ_LEN}" -e 0 -E 0 -r 0 "${SIM_FULL_FA}" "${BULK_FASTQ_DIR}/bulk"   # 15 per haplotype ≈ 30x total
 
 
 echo "Bulk DWGSIM finished."

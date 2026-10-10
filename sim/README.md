@@ -15,6 +15,7 @@ sim/
     common.sh          derived paths, route table, log helpers
     sim_cells.sh, sim_bulk.sh, scDNA_sim.py
     phase_scan2.sh, phase_ugp.sh, snakefile.phasing
+    phase_perfect.sh, perfect_phase.py, perfect_ad.py   (--phaser perfect)
     call_hiscanner.sh, chisel_prep.sh, call_chisel.sh
     eval.sh, lift_truth.py, standardize_calls.py, eval_calls.py
 ```
@@ -35,7 +36,19 @@ Jobs source `config.sh` when they start, so edits reach queued jobs too.
 ./run_pipeline.sh ... --dry-run                       # print the sbatch commands
 ```
 
-Implemented routes: `scan2 -> hiscanner`, `ugp -> chisel`. Asking for any other
+Both launchers print job IDs on stdout (notes go to stderr), so stages can be chained:
+
+```bash
+SIM=$(./run_sim.sh)
+./run_pipeline.sh --phaser scan2 --caller hiscanner --binsize 500kb --after "$SIM"
+./run_pipeline.sh --phaser ugp   --caller chisel    --binsize 2Mb   --after "$SIM"
+PERF=$(./run_pipeline.sh --phaser perfect --to phase --after "$SIM")      # one run for both callers
+./run_pipeline.sh --phaser perfect --caller hiscanner --from call --binsize 500kb --after "$PERF"
+./run_pipeline.sh --phaser perfect --caller chisel    --from call --binsize 2Mb   --after "$PERF"
+```
+
+Implemented routes: `scan2 -> hiscanner`, `ugp -> chisel`, `perfect -> hiscanner`,
+`perfect -> chisel`. Asking for any other
 pair prints why it isn't wired up yet. Starting partway checks that the earlier
 stage's output exists (pass `--after JOBID` if it's still being made).
 
@@ -44,7 +57,7 @@ stage's output exists (pass `--after JOBID` if it's still being made).
 | stage | where |
 |---|---|
 | simulation | `sim/{bams,bulk,cn_mat,dwgsim}` |
-| phase | `scan2_out/` or `ugp/out/phase/phased_het_snps.vcf.gz` |
+| phase | `scan2_out/`, `ugp/out/phase/phased_het_snps.vcf.gz`, or `perfect/` |
 | call | `<caller>_<binsize bp>/<phaser>/`, e.g. `chisel_5000000/ugp/`, `hiscanner_500000/scan2/` (barcoded BAM shared in `chisel/prep/`) |
 | eval | `eval/<phaser>_<caller>_<binsize bp>/`, e.g. `eval/ugp_chisel_5000000/` (lifted truth shared: `eval/truth_hg38.tsv`) |
 
@@ -55,12 +68,40 @@ when you submit, so editing `config.sh` afterwards doesn't affect queued jobs.
 Eval outputs: `summary.txt` (accuracy + gain/normal/loss TP/TN/FP/FN), `confusion_segments_cn.pdf` and
 `confusion_segments_events.pdf` (true vs called CN, and gain/normal/loss; base-pair weighted)
 (+ `section_confusion.tsv`), `per_cell_tracks{,_bin,_ideal}.pdf`, and `calls.tsv` (the
-converted calls that were scored).
+converted calls that were scored). For HiScanner only the allele-specific level is
+shown (`per_cell_tracks_ideal.pdf`).
 
 Every caller's output is converted by `standardize_calls.py` to one table
 (`calls.tsv` in the eval folder: cell, chrom, start, end, CN_A, CN_B + extras), so
 `eval_calls.py` is the same for every caller. Adding a caller = a `call_<x>.sh`,
 a converter in `standardize_calls.py`, and an entry in `ROUTES` in `scripts/common.sh`.
+
+### Perfect phasing (`--phaser perfect`)
+
+Tests the callers without phasing error. `phase_perfect.sh` reads the true het SNPs
+off the HG002 mat/pat assemblies' alignments to hg38 (the PAFs eval.sh caches in
+`EVAL_LIFT_DIR`): a position counts when exactly one haplotype differs from hg38, both
+align there exactly once, and neither has an indel within `PERFECT_INDEL_PAD` bp.
+GT is maternal|paternal.
+
+- `perfect/phased_hets.vcf.gz` (sample `phasedgt`): the phase, used by CHISEL and HiScanner
+- `perfect/hiscanner_input/`: laid out like a SCAN2 folder for HiScanner.
+  `gatk/hc_raw.mmq60.vcf.gz` holds per-cell allele depths at the true hets
+  (bcftools mpileup, MAPQ >= `PERFECT_MIN_MAPQ`); `shapeit/phased_hets.vcf.gz` links to the phase.
+
+It uses every true het (more than any phaser finds), so it is an upper bound on what
+better phasing *and* SNP discovery could give.
+
+### HiScanner notes
+
+- Reads must be at least as long as the mappability track's k-mer (`SIM_READ_LEN` >=
+  `HS_MAPPABILITY_K`, 150 for the hg38 track); `call_hiscanner.sh` checks this.
+- BIC-seq normalization: HiScanner hard-codes `-p=0.0001` (fraction of positions used to
+  fit the GC/mappability model), which leaves ~15 reads in the fit at 0.1x on one
+  chromosome. `call_hiscanner.sh` puts a copy of HiScanner's Snakefile in the run folder
+  (HiScanner prefers `./Snakefile`) with `-p=HS_NORM_P -l=HS_NORM_READLEN -s=HS_NORM_FRAGSIZE`.
+- HiScanner's `CN_A|CN_B` is major|minor (BAF is mirrored per bin), so its eval reports
+  only the allele-specific level (`eval_calls.py --levels allele_specific`).
 
 ### Setup notes
 

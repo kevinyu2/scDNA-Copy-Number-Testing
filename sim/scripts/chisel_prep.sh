@@ -54,6 +54,35 @@ note "${N} cell BAMs found"
 mkdir -p "${PREP_DIR}"
 cd "${PREP_DIR}"   # chisel_prep writes -o relative to the working directory
 
+# ============================================================
+# Lock: several CHISEL routes (e.g. ugp and perfect) submit their own chisel_prep
+# at the same time; only one may build the shared BAM, the others wait and reuse it.
+# mkdir is atomic on NFS. A lock left by a job that no longer runs is taken over.
+# ============================================================
+
+LOCK="${PREP_DIR}/.chisel_prep.lock"
+ME="${SLURM_JOB_ID:-pid$$}"
+lock_owner_gone() {   # true when the job named in the lock is no longer queued or running
+    local owner out
+    owner=$(cat "${LOCK}/owner" 2>/dev/null || true)
+    [[ -n ${owner} ]] || return 1                          # just created; owner not written yet
+    [[ ${owner} == pid* ]] && { kill -0 "${owner#pid}" 2>/dev/null && return 1 || return 0; }
+    out=$(squeue -h -j "${owner}" -o %T 2>&1) || { [[ ${out} == *"Invalid job id"* ]]; return; }
+    [[ ! ${out} =~ (PENDING|RUNNING|CONFIGURING|COMPLETING|SUSPENDED|REQUEUE) ]]
+}
+WAITED=0
+until mkdir "${LOCK}" 2>/dev/null; do
+    if lock_owner_gone; then
+        note "Removing stale lock from job $(cat "${LOCK}/owner" 2>/dev/null)"
+        rm -rf "${LOCK}"
+        continue
+    fi
+    (( WAITED % 600 == 0 )) && note "Waiting for job $(cat "${LOCK}/owner" 2>/dev/null || echo '?') to finish building the barcoded BAM"
+    sleep 30; WAITED=$(( WAITED + 30 ))
+done
+echo "${ME}" > "${LOCK}/owner"
+trap 'rm -rf "${LOCK}"' EXIT
+
 if [[ -s ${OUT_BAM} && -s ${OUT_BAM}.bai && ${CHISEL_PREP_FORCE:-false} != true ]]; then
     note "${PREP_DIR}/${OUT_BAM} already exists; set CHISEL_PREP_FORCE=true to rebuild"
     exit 0

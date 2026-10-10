@@ -35,8 +35,13 @@ CALL_OUT=$(caller_output "${CALLER}" "${PHASER}")
 OUT_DIR=$(eval_out_dir "${PHASER}" "${CALLER}")
 TRUTH="${EVAL_TRUTH}"
 CALLS_STD="${OUT_DIR}/calls.tsv"
+# LEVELS: which haplotype orientations are meaningful for the caller.
+#   all              actual / ideal phasing / allele-specific (callers that phase across bins)
+#   allele_specific  HiScanner: its CN_A|CN_B is always major|minor (it mirrors BAF per bin),
+#                    so only sorted (allele-specific) scoring is meaningful
+LEVELS=all
 case ${CALLER} in
-    hiscanner) LABEL="HiScanner (${PHASER}, $(caller_binsize hiscanner) bp bins)" ;;
+    hiscanner) LABEL="HiScanner (${PHASER}, $(caller_binsize hiscanner) bp bins)"; LEVELS=allele_specific ;;
     chisel)    CHISEL_EVAL_CN="${CHISEL_EVAL_CN:-corrected}"
                LABEL="CHISEL (${PHASER}, $(caller_binsize chisel) bp bins, ${CHISEL_EVAL_CN})" ;;
     *)         LABEL="${CALLER} (${PHASER})" ;;
@@ -58,29 +63,11 @@ mkdir -p "${EVAL_LIFT_DIR}" "${OUT_DIR}"
 # 1. Haplotype -> hg38 alignments (cached)
 # ============================================================
 
+make_lift_pafs      # scripts/common.sh: reuses the cached PAFs when they are newer than the FASTAs
+
 # Shared files are written to a temp name unique to this job, then renamed into place
 # (atomic), so evals running at the same time never write into the same file.
 TMP_TAG="tmp.${SLURM_JOB_ID:-nojob}.$(hostname -s).$$"
-
-HG38_CHR="${EVAL_LIFT_DIR}/hg38.${CHR}.fa"
-if [[ ! -s ${HG38_CHR} ]]; then
-    note "Extracting ${CHR} from ${REF}"
-    samtools faidx "${REF}" "${CHR}" > "${HG38_CHR}.${TMP_TAG}"
-    mv "${HG38_CHR}.${TMP_TAG}" "${HG38_CHR}"
-fi
-
-for hap in mat pat; do
-    if [[ ${hap} == mat ]]; then FA="${SIM_MAT_FA}"; else FA="${SIM_PAT_FA}"; fi
-    PAF="${EVAL_LIFT_DIR}/${hap}_to_hg38.${CHR}.paf"
-    if [[ -s ${PAF} && ${PAF} -nt ${FA} ]]; then
-        note "Reusing ${PAF}"
-        continue
-    fi
-    note "Aligning ${hap} haplotype to hg38 ${CHR} (minimap2 asm5; tens of minutes)"
-    minimap2 -c -x asm5 --cs --secondary=no -t "${SLURM_CPUS_PER_TASK:-8}" \
-        "${HG38_CHR}" "${FA}" > "${PAF}.${TMP_TAG}"
-    mv "${PAF}.${TMP_TAG}" "${PAF}"
-done
 
 # ============================================================
 # 2. Lift truth to hg38
@@ -88,8 +75,8 @@ done
 
 # Reused when it is newer than every input and was built with the same settings
 # (recorded in truth_hg38.tsv.stamp); otherwise rebuilt. Shared by all routes.
-MAT_PAF="${EVAL_LIFT_DIR}/mat_to_hg38.${CHR}.paf"
-PAT_PAF="${EVAL_LIFT_DIR}/pat_to_hg38.${CHR}.paf"
+MAT_PAF=$(lift_paf mat)
+PAT_PAF=$(lift_paf pat)
 STAMP="${TRUTH}.stamp"
 STAMP_TEXT="chr=${CHR} merge_gap=${EVAL_MERGE_GAP:-1000} cn_mat=${CN_MAT_DIR} mat_paf=${MAT_PAF} pat_paf=${PAT_PAF}"
 
@@ -151,6 +138,7 @@ python3 -B "${SCRIPTS}/eval_calls.py" \
     --orientation "${EVAL_ORIENTATION}" \
     --cells-per-page "${EVAL_CELLS_PER_PAGE}" \
     --max-cells-plot "${EVAL_MAX_CELLS_PLOT}" \
-    --conf-unit "${EVAL_CONF_UNIT:-bp}"
+    --conf-unit "${EVAL_CONF_UNIT:-bp}" \
+    --levels "${LEVELS}"
 
 note "Done: ${OUT_DIR}"
