@@ -91,8 +91,11 @@ LAST_SAMPLE=$(bcftools query -l "${HS_INPUT}/shapeit/phased_hets.vcf.gz" | tail 
 
 # Reads shorter than the mappability k-mer make the track claim positions the reads
 # cannot map uniquely (HiScanner README: "not valid, will cause false positives")
-FIRST_BAM=$(ls "${BAM_DIR}"/*.bam | head -n 1)
+BAM_LIST=("${BAM_DIR}"/*.bam)          # glob, not `ls | head` (SIGPIPE under pipefail with many BAMs)
+FIRST_BAM=${BAM_LIST[0]}
+[[ -f ${FIRST_BAM} ]] || die "no BAMs in ${BAM_DIR}"
 READ_LEN=$(set +o pipefail; samtools view "${FIRST_BAM}" | awk 'NR > 2000 { exit } { l = length($10); if (l > m) m = l } END { print m + 0 }')
+[[ ${READ_LEN} =~ ^[0-9]+$ ]] || die "could not read the read length from ${FIRST_BAM}"
 (( READ_LEN >= HS_MAPPABILITY_K )) \
     || die "reads in ${FIRST_BAM} are ${READ_LEN} bp but the mappability track is ${HS_MAPPABILITY_K}-mer (HS_MAPPABILITY_K); re-simulate with SIM_READ_LEN >= ${HS_MAPPABILITY_K} or use a shorter track"
 (( READ_LEN == HS_NORM_READLEN )) \
