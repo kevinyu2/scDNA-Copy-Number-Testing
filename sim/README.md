@@ -100,10 +100,11 @@ better phasing *and* SNP discovery could give.
   fit the GC/mappability model), which leaves ~15 reads in the fit at 0.1x on one
   chromosome. `call_hiscanner.sh` puts a copy of HiScanner's Snakefile in the run folder
   (HiScanner prefers `./Snakefile`) with `-p=HS_NORM_P -l=HS_NORM_READLEN -s=HS_NORM_FRAGSIZE`.
-- Segmentation: `HS_LAMBDA=4` (HiScanner's 16 misses 2-5 Mb single-copy events at 0.1x) and
-  `HS_SEG_NOSCALE=true`. BIC-seq otherwise multiplies lambda per cell by a noise factor that
-  high-copy ecDNA inflates ~6x or more, hiding every other event in those cells.
-  `call_hiscanner.sh` points HiScanner's `bicseq_seg` at a wrapper that adds `--noscale`.
+- Segmentation: `HS_LAMBDA=4` (HiScanner's 16 misses 2-5 Mb single-copy events at 0.1x).
+  `HS_SEG_NOSCALE` (default false = HiScanner's behavior): BIC-seq multiplies lambda per cell
+  by a noise factor that high-copy ecDNA inflates ~6x or more, which can hide smaller events in
+  those cells. With true, `call_hiscanner.sh` points HiScanner's `bicseq_seg` at a wrapper that
+  adds `--noscale`.
   All lambdas in `HS_LAMBDA_RANGE` are segmented, so trying another lambda needs only
   `HS_STEPS="cnv"`; changing `HS_SEG_NOSCALE` needs `HS_STEPS="segment cnv"`.
 - HiScanner's `CN_A|CN_B` is major|minor (BAF is mirrored per bin), so its eval reports
