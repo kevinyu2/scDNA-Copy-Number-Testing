@@ -72,7 +72,14 @@ HS_STEPS="snp phase ado normalize segment cnv"
 HS_RDR_ONLY=false
 HS_MULTISAMPLE=false                # use_multisample_segmentation
 HS_BINSIZE=500000
-HS_LAMBDA=16
+HS_LAMBDA=4                         # BIC-seq penalty used for the calls (must be in HS_LAMBDA_RANGE).
+                                    # HiScanner's 16 is tuned for deeper data: at 0.1x with 500 kb bins it
+                                    # misses 5 Mb single-copy gains even in clean simulated cells; 4 finds
+                                    # 2-5 Mb gains/losses. All lambdas in the range are segmented anyway, so
+                                    # trying another value only needs HS_STEPS="cnv" + eval
+HS_SEG_NOSCALE=true                 # true: BIC-seq --noscale. Its default multiplies lambda per cell by a noise
+                                    # factor that ecDNA (CN ~100) inflates ~6x+, hiding every other event
+                                    # in those cells. Changing this needs HS_STEPS="segment cnv"
 HS_LAMBDA_RANGE="[2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]"
 HS_MAX_WGD=1 # Maximum whole genome duplication it tests. Set at 1 for no WGD
 HS_BATCH_SIZE=5

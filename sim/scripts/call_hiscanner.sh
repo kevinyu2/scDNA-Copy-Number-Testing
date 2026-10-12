@@ -57,6 +57,7 @@ HS_NORM_P="${HS_NORM_P:-0.01}"
 HS_NORM_READLEN="${HS_NORM_READLEN:-150}"
 HS_NORM_FRAGSIZE="${HS_NORM_FRAGSIZE:-500}"
 HS_MAPPABILITY_K="${HS_MAPPABILITY_K:-150}"
+HS_SEG_NOSCALE="${HS_SEG_NOSCALE:-true}"
 
 mkdir -p "${HS_DIR}"
 
@@ -102,6 +103,9 @@ READ_LEN=$(set +o pipefail; samtools view "${FIRST_BAM}" | awk 'NR > 2000 { exit
     || note "WARNING: reads are ${READ_LEN} bp but HS_NORM_READLEN=${HS_NORM_READLEN}"
 [[ ${HS_NORM_P} =~ ^(0?\.[0-9]+|1(\.0*)?)$ ]] && awk -v p="${HS_NORM_P}" 'BEGIN { exit !(p > 0 && p <= 1) }' \
     || die "HS_NORM_P='${HS_NORM_P}' must be a fraction in (0, 1]"
+[[ " $(tr -d '[],' <<< "${HS_LAMBDA_RANGE}") " == *" ${HS_LAMBDA} "* ]] \
+    || die "HS_LAMBDA=${HS_LAMBDA} is not in HS_LAMBDA_RANGE=${HS_LAMBDA_RANGE} (HiScanner only segments those)"
+[[ ${HS_SEG_NOSCALE} == true || ${HS_SEG_NOSCALE} == false ]] || die "HS_SEG_NOSCALE must be true or false"
 [[ ${HS_NORM_READLEN} =~ ^[1-9][0-9]*$ && ${HS_NORM_FRAGSIZE} =~ ^[1-9][0-9]*$ ]] \
     || die "HS_NORM_READLEN / HS_NORM_FRAGSIZE must be positive integers"
 
@@ -347,6 +351,28 @@ sed "s/-p=0\.0001/${NORM_OPTS}/" "${SRC_SNAKEFILE}" > "${HS_DIR}/Snakefile.tmp"
 grep -qF -- "${NORM_OPTS}" "${HS_DIR}/Snakefile.tmp" || die "patching the BIC-seq options into the Snakefile failed"
 mv "${HS_DIR}/Snakefile.tmp" "${HS_DIR}/Snakefile"
 note "BIC-seq normalization: -p=${HS_NORM_P} -l=${HS_NORM_READLEN} -s=${HS_NORM_FRAGSIZE} (HiScanner default: -p=0.0001, -l 50, -s 300)"
+
+# ============================================================
+# Segmentation: optionally turn off BIC-seq's per-cell lambda scaling
+# ============================================================
+
+# NBICseq-seg.pl multiplies lambda by (1 + mean over bins of ((obs-exp)^2-exp)/exp^2).
+# In a cell with ecDNA at CN ~100 that factor is in the hundreds, so only the ecDNA
+# boundaries survive. HiScanner takes the segmenter path from config.yaml
+# (bicseq_seg), so a wrapper adds --noscale without editing the package.
+SEG_LINE=""
+if [[ ${HS_SEG_NOSCALE} == true ]]; then
+    SRC_SEG=$(python -c 'import os, hiscanner; print(os.path.join(os.path.dirname(hiscanner.__file__), "resources", "tools", "singlesample_seg", "NBICseq-seg.pl"))')
+    [[ -s ${SRC_SEG} ]] || die "cannot find HiScanner's NBICseq-seg.pl (looked at ${SRC_SEG})"
+    SEG_WRAPPER="${HS_DIR}/NBICseq-seg-noscale.sh"
+    printf '#!/bin/bash\n# written by call_hiscanner.sh (HS_SEG_NOSCALE=true)\nexec perl "%s" --noscale "$@"\n' "${SRC_SEG}" > "${SEG_WRAPPER}"
+    chmod +x "${SEG_WRAPPER}"
+    SEG_LINE="bicseq_seg: ${SEG_WRAPPER}"
+    note "BIC-seq segmentation: lambda ${HS_LAMBDA}, --noscale (no per-cell lambda scaling)"
+else
+    note "BIC-seq segmentation: lambda ${HS_LAMBDA}, scaled per cell by its noise level (HiScanner default)"
+fi
+[[ -z ${SEG_LINE} ]] || printf '%s\n' "${SEG_LINE}" >> "${HS_DIR}/config.yaml"
 
 # HiScanner looks for config.yaml / cluster.yaml / Snakefile in the working directory
 cd "${HS_DIR}"
