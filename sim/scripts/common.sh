@@ -14,6 +14,10 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 # config.sh while jobs are queued cannot change the bin size of a run in flight.
 [[ -n ${PIN_CHISEL_BINSIZE:-} ]] && CHISEL_BINSIZE=${PIN_CHISEL_BINSIZE}
 [[ -n ${PIN_HS_BINSIZE:-} ]] && HS_BINSIZE=${PIN_HS_BINSIZE}
+[[ -n ${PIN_CHISEL_VARBINS:-} ]] && CHISEL_VARBINS=${PIN_CHISEL_VARBINS}
+[[ -n ${PIN_CHISEL_VB_MSR:-} ]] && CHISEL_VB_MINSNPREADSPERCELL=${PIN_CHISEL_VB_MSR}
+[[ -n ${PIN_CHISEL_UGP_BINS:-} ]] && CHISEL_UGP_BINS=${PIN_CHISEL_UGP_BINS}
+[[ -n ${PIN_CHISEL_UGP_MSR:-} ]] && CHISEL_UGP_MSR=${PIN_CHISEL_UGP_MSR}
 
 # "5Mb" / "500kb" / "5000000" -> bp. Same rules as CHISEL's -b: whole numbers,
 # optional suffix kb or Mb (case-sensitive).
@@ -30,7 +34,13 @@ to_bp() {
 caller_binsize() {                                   # caller -> bin size in bp
     case $1 in
         hiscanner) to_bp "${HS_BINSIZE}" ;;
-        chisel)    to_bp "${CHISEL_BINSIZE}" ;;
+        chisel)    if [[ ${CHISEL_UGP_BINS:-false} == true ]]; then
+                       echo "ugpmsr${CHISEL_UGP_MSR}"               # names chisel_ugpmsr<N>/ folders
+                   elif [[ ${CHISEL_VARBINS:-false} == true ]]; then
+                       echo "var${CHISEL_VB_MINSNPREADSPERCELL}"   # names chisel_var<N>/ folders
+                   else
+                       to_bp "${CHISEL_BINSIZE}"
+                   fi ;;
         *)         die "unknown caller '$1'" ;;
     esac
 }
@@ -67,6 +77,7 @@ CN_MAT_DIR="${SIM_DIR}/cn_mat"
 SCAN2_DIR="${PROJECT_DIR}/scan2_out"
 # UGP_DIR is set in config.sh
 UGP_PHASED_VCF="${UGP_DIR}/out/phase/phased_het_snps.vcf.gz"
+ugp_bb_file() { echo "${UGP_DIR}/out/bb/MSR$1/bulk/bb.tsv.gz"; }   # bins of UGP percell mode, per min_snp_reads
 
 # perfect: true phase from the haplotype assemblies (phase_perfect.sh)
 PERFECT_DIR="${PROJECT_DIR}/perfect"

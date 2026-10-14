@@ -43,7 +43,8 @@ command -v snakemake >/dev/null || die "snakemake not found in ${UGP_ENV}"
 SMK_MAJOR=$(snakemake --version | cut -d. -f1)
 (( SMK_MAJOR >= 9 )) || die "UGP needs Snakemake >= 9 (found $(snakemake --version)); use its own env"
 
-[[ ${UGP_MODE} == bulk || ${UGP_MODE} == percell ]] || die "UGP_MODE must be 'bulk' or 'percell'"
+[[ ${UGP_MODE} == bulk || ${UGP_MODE} == percell || ${UGP_MODE} == pseudobulk ]] \
+    || die "UGP_MODE must be 'bulk', 'pseudobulk' or 'percell'"
 
 for f in "${UGP_REPO}/workflow/Snakefile" "${REF}" "${REF}.fai" "${BULK_BAM}" "${BULK_BAM}.bai" \
          "${UGP_GTF}" "${UGP_SNP_PANEL}" "${EAGLE_GENMAP}" \
@@ -71,6 +72,12 @@ if [[ ${UGP_MODE} == percell ]]; then
         CELL_BAMS=("${CELL_BAMS[@]:0:${UGP_MAX_CELLS}}")
     fi
     echo "percell mode: ${#CELL_BAMS[@]} cells"
+elif [[ ${UGP_MODE} == pseudobulk ]]; then
+    # all cells in one BAM; UGP's scDNA pileup uses --ignore-RG, so it is one sample
+    [[ -s ${CHISEL_BARCODED_BAM} && -e ${CHISEL_BARCODED_BAM}.bai ]] \
+        || die "pseudobulk mode needs chisel_prep's ${CHISEL_BARCODED_BAM} (+ .bai); run scripts/chisel_prep.sh first"
+    CELL_BAMS=("${CHISEL_BARCODED_BAM}")
+    echo "pseudobulk mode: ${CHISEL_BARCODED_BAM}"
 fi
 
 # ============================================================
@@ -116,7 +123,7 @@ PY
 # ============================================================
 
 CHROM_YAML="[$(echo ${UGP_CHROMS} | sed 's/ /, /g')]"
-if [[ ${UGP_MODE} == percell ]]; then
+if [[ ${UGP_MODE} == percell || ${UGP_MODE} == pseudobulk ]]; then
     ASSAYS='["bulkWGS", "scDNA"]'
 else
     ASSAYS='["bulkWGS"]'

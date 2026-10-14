@@ -111,10 +111,16 @@ HS_RERUN=true                      # true = redo steps even if outputs exist
 UGP_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/genotyping-env"
 UGP_REPO="/n/fs/ragr-research/users/ky8418/Universal-Genotyping-Pipeline"
 UGP_CONDA_PREFIX="/n/fs/ragr-data/users/ky8418/scDNA_sim/ugp_conda"   # same as in step 1
-UGP_DIR="${PROJECT_DIR}/ugp_percell"
+UGP_DIR="${PROJECT_DIR}/ugp_pseudobulk"
 UGP_SAMPLE_ID="HG002sim"
 
-UGP_MODE="percell"            # bulk | percell
+UGP_MODE="pseudobulk"      # bulk | pseudobulk | percell
+#   bulk:       bulk normal only; stops after phasing (all CHISEL with fixed/--varbins bins needs)
+#   pseudobulk: bulk normal + ONE scDNA dataset, chisel_prep's barcodedcells.bam (all cells pooled;
+#               UGP piles it up with --ignore-RG); makes bins. chisel_prep runs before UGP.
+#   percell:    bulk normal + every cell as its own dataset. UGP keeps only SNPs covered in EVERY
+#               dataset (phase_and_concat_bulk, min_depth floored at 1), so at ~0.1-0.3x per cell
+#               all SNPs are dropped and binning fails. Only usable with deeply sequenced cells.
 UGP_MAX_CELLS=20           # percell only; 0 = all cells
 
 UGP_CHROMS="1"             # UGP wants bare numbers; it handles the chr prefix itself
@@ -123,11 +129,14 @@ UGP_PHASING_PANEL="${RESOURCES_DIR%/}/ugp_phasing_panel"
 UGP_GTF="${RESOURCES_DIR%/}/gencode.v38.annotation.gtf.gz"
 EAGLE_GENMAP="${RESOURCES_DIR%/}/genetic_map_hg38_withX.txt.gz"
 
-# Adaptive binning (percell only; bulk mode stops before binning)
-# A bin closes when EVERY cell meets these thresholds, so the sparsest cell sets the size.
-UGP_MIN_SNP_READS="[50, 100, 200]"   # SNP-covering reads per cell per bin; each value gives its own MSR{n}/ output
+# Adaptive binning (pseudobulk/percell; bulk mode stops before binning)
+# A bin closes when EVERY tumor dataset meets these thresholds. In pseudobulk mode there is one,
+# the pool of all cells, so the counts are POOLED: per-cell target x #cells. With 1000 cells at
+# ~0.23x, 25000/50000/100000 = 25/50/100 SNP reads per cell, roughly 150/300/600 kb bins
+# (~1500/800/400 bins on chr1). In percell mode they are per cell.
+UGP_MIN_SNP_READS="[25000, 50000, 100000]"   # SNP-covering reads per bin per tumor dataset; each value gives its own MSR{n}/ output
 UGP_MIN_SNP_PER_BIN=1                # het SNPs per bin (UGP default: 1)
-UGP_MIN_TOTAL_READS=1000             # read starts per cell per bin; 0 disables (UGP default: 5000)
+UGP_MIN_TOTAL_READS=1000             # read starts per bin in every dataset, incl. the bulk; 0 disables (UGP default: 5000)
 UGP_GENE_AWARE_BINNING=true          # never cut inside a gene (UGP default: true)
 
 
@@ -171,6 +180,23 @@ CHISEL_MAXPLOIDY=3          # base ploidies tried are 2, 4, ... up to this: 3 = 
                             # (no WGD, like HS_MAX_WGD=1); 4 = also test a WGD
 CHISEL_UPPERK=100           # max bin clusters
 CHISEL_EVAL_CN="corrected"  # corrected = clone consensus (CORRECTED_HAP_CN, CHISEL's final output); raw = each cell's own call (HAP_CN)
+
+# Variable-length bins (chisel --varbins, needs the chisel_hmm fork). CHISEL_BINSIZE is then only
+# used for the first, fixed-bin RDR pass that selects cells. run_pipeline.sh --varbins N overrides
+# CHISEL_VARBINS/CHISEL_VB_MINSNPREADSPERCELL per run; the run folder is chisel_var<N>/<phaser>/
+CHISEL_VARBINS=false              # true = variable-length bins
+CHISEL_VB_MINSNPREADSPERCELL=25   # mean SNP-covering reads per cell per bin (x #cells = pseudobulk threshold)
+CHISEL_VB_MINTOTALREADS=5000      # read starts per bin in the cell pseudobulk and in the bulk normal
+CHISEL_VB_MINSNPS=1               # het SNPs per bin
+CHISEL_VB_WINDOW="1kb"            # windows that are merged into bins
+CHISEL_VB_REFVERSION="auto"       # chromosome arms bound the bins: auto (from chr1 length) | hg19 | hg38 | none
+
+# Bins from UGP (chisel --bins). Needs UGP_MODE=pseudobulk (or percell), the modes that write bins, and
+# CHISEL_UGP_MSR must be one of UGP_MIN_SNP_READS: the bins are ${UGP_DIR}/out/bb/MSR<N>/bulk/bb.tsv.gz.
+# They are decided by the UGP_MAX_CELLS cells UGP was given, every one of which has >= N SNP reads
+# per bin. run_pipeline.sh --ugpbins N overrides these per run; the run folder is chisel_ugpmsr<N>/<phaser>/
+CHISEL_UGP_BINS=false
+CHISEL_UGP_MSR=100000
 
 
 # ============================================================

@@ -13,6 +13,11 @@
 #   phased_snps.tsv   CHISEL's -l input ("#CHR POS PHASE", PHASE = 0|1 or 1|0),
 #                     made from the phaser's VCF
 #   rdr/ baf/ combo/ calls/ clones/ plots/   CHISEL's own folders
+#   bins/             with CHISEL_UGP_BINS=true: the same files for UGP's bins (bins.tsv
+#                     describes them; CLOSE/LIMIT are "given"), read from ugp/out/bb/MSR<N>/
+#                     with CHISEL_VARBINS=true: bins.tsv (the variable-length bins, with
+#                     how each was decided), bins.pdf (diagnostic plots), windows.tsv.gz,
+#                     rdr.tsv (per-cell RDR on these bins), log_binning
 #   calls/calls.tsv   one row per bin x cell; CELL is the barcode
 #                     (barcodedcells.info.tsv maps it back), CN_STATE = "A|B"
 #   clones/mapping.tsv  cell -> cluster -> clone
@@ -35,7 +40,9 @@ set -euo pipefail
 # Defaults (override in config.sh)
 CHISEL_CHROMS="${CHISEL_CHROMS:-${CHR}}"
 CHISEL_BINSIZE="${CHISEL_BINSIZE:-5Mb}"
-BIN_BP=$(to_bp "${CHISEL_BINSIZE}")          # also names the run folder
+BIN_BP=$(to_bp "${CHISEL_BINSIZE}")          # fixed bins (with varbins: only the cell-selection pass)
+CHISEL_VARBINS="${CHISEL_VARBINS:-false}"
+CHISEL_UGP_BINS="${CHISEL_UGP_BINS:-false}"
 CHISEL_BLOCKSIZE="${CHISEL_BLOCKSIZE:-50kb}"
 CHISEL_MINREADS="${CHISEL_MINREADS:-10000}"
 CHISEL_MAXPLOIDY="${CHISEL_MAXPLOIDY:-3}"
@@ -116,9 +123,26 @@ note "Phased het SNPs for CHISEL: ${N_SNPS} -> ${SNPS}"
 # ============================================================
 
 # Clear earlier results so a failed step cannot leave an old calls.tsv behind
-for d in rdr baf combo calls clones plots; do
+for d in rdr baf bins combo calls clones plots; do
     rm -rf "${RUN_DIR:?}/${d}"
 done
+
+VB_ARGS=()
+if [[ ${CHISEL_UGP_BINS} == true ]]; then
+    [[ ${PHASER} == ugp ]] || die "UGP bins need the ugp phaser"
+    UGP_BB=$(ugp_bb_file "${CHISEL_UGP_MSR}")
+    [[ -s ${UGP_BB} ]] || die "missing ${UGP_BB}: run UGP with UGP_MODE=pseudobulk and ${CHISEL_UGP_MSR} in UGP_MIN_SNP_READS"
+    VB_ARGS=(--bins "${UGP_BB}")
+    note "UGP bins: ${UGP_BB} ($(zcat "${UGP_BB}" | grep -vc '^#') bins)"
+elif [[ ${CHISEL_VARBINS} == true ]]; then
+    VB_ARGS=(--varbins
+             --minsnpreadspercell "${CHISEL_VB_MINSNPREADSPERCELL:-25}"
+             --mintotalreads "${CHISEL_VB_MINTOTALREADS:-5000}"
+             --minsnps "${CHISEL_VB_MINSNPS:-1}"
+             --windowsize "${CHISEL_VB_WINDOW:-1kb}"
+             --refversion "${CHISEL_VB_REFVERSION:-auto}")
+    note "Variable-length bins: ${VB_ARGS[*]}"
+fi
 
 note "Running CHISEL: bins ${BIN_BP} bp, blocks ${CHISEL_BLOCKSIZE}, minreads ${CHISEL_MINREADS}, maxploidy ${CHISEL_MAXPLOIDY}"
 RC=0
@@ -136,6 +160,7 @@ chisel \
     -K "${CHISEL_UPPERK}" \
     --seed "${CHISEL_SEED}" \
     -j "${CHISEL_JOBS}" \
+    "${VB_ARGS[@]+"${VB_ARGS[@]}"}" \
     || RC=$?
 
 # ============================================================
@@ -160,6 +185,12 @@ N_SEL=$(awk '$1 != "normal"' "${TOTAL}" | awk 'END { print NR }')
 note "Cells passing minreads: ${N_SEL}/${N_PREP}"
 
 [[ -s ${RUN_DIR}/baf/baf.tsv ]]     || step_failed baf "empty baf.tsv"
+if [[ ${CHISEL_VARBINS} == true || ${CHISEL_UGP_BINS} == true ]]; then
+    BINS="${RUN_DIR}/bins/bins.tsv"
+    [[ -s ${BINS} ]] || { echo "ERROR: CHISEL binning step: no bins.tsv" >&2; tail -n 20 "${RUN_DIR}/bins/log_binning" >&2; exit 1; }
+    [[ -s ${RUN_DIR}/bins/rdr.tsv ]] || { echo "ERROR: CHISEL RDR on variable bins: empty rdr.tsv" >&2; tail -n 20 "${RUN_DIR}/bins/log_rdr" >&2; exit 1; }
+    note "Variable-length bins: $(grep -vc '^#' "${BINS}") -> ${BINS} (plots: ${RUN_DIR}/bins/bins.pdf)"
+fi
 [[ -s ${RUN_DIR}/combo/combo.tsv ]] || step_failed combo "empty combo.tsv"
 
 CALLS="${RUN_DIR}/calls/calls.tsv"

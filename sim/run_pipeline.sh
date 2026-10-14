@@ -21,6 +21,10 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
   --binsize B    caller bin size for this run (e.g. 1Mb, 500kb, 2000000); overrides
                  CHISEL_BINSIZE / HS_BINSIZE from config.sh. Output folders are
                  named by it: <caller>_<bp>/ and eval/<phaser>_<caller>_<bp>/
+  --varbins N    CHISEL only: variable-length bins with N mean SNP-covering reads per
+                 cell per bin (chisel --varbins); output folders are chisel_var<N>/
+  --ugpbins N    CHISEL only: use UGP's bins for min_snp_reads N (UGP_MODE=percell,
+                 N in UGP_MIN_SNP_READS); output folders are chisel_ugpmsr<N>/
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
   --dry-run      print the sbatch commands without submitting
@@ -68,7 +72,7 @@ stage_index() {
 # Arguments
 # ============================================================
 
-PHASER="" CALLER="" FROM=phase TO=eval AFTER="" DRY=false BINSIZE=""
+PHASER="" CALLER="" FROM=phase TO=eval AFTER="" DRY=false BINSIZE="" VARBINS="" UGPBINS=""
 while (( $# )); do
     case $1 in
         --phaser)  PHASER=${2:?--phaser needs a value}; shift 2 ;;
@@ -78,6 +82,8 @@ while (( $# )); do
         --only)    FROM=${2:?--only needs a value}; TO=$2; shift 2 ;;
         --after)   AFTER=${2:?--after needs a value};   shift 2 ;;
         --binsize) BINSIZE=${2:?--binsize needs a value}; shift 2 ;;
+        --varbins) VARBINS=${2:?--varbins needs a value}; shift 2 ;;
+        --ugpbins) UGPBINS=${2:?--ugpbins needs a value}; shift 2 ;;
         --dry-run) DRY=true; shift ;;
         --list)    list_routes; exit 0 ;;
         -h|--help) usage; exit 0 ;;
@@ -119,12 +125,37 @@ if [[ -n ${BINSIZE} ]]; then
     esac
 fi
 # (plain assignments, so a bad size stops the launcher before anything is submitted)
+if [[ -n ${VARBINS} ]]; then
+    [[ ${CALLER} == chisel ]] || die "--varbins needs --caller chisel"
+    [[ ${VARBINS} =~ ^[0-9]+([.][0-9]+)?$ ]] || die "--varbins needs a number of SNP reads per cell, e.g. 25"
+    CHISEL_VARBINS=true
+    CHISEL_VB_MINSNPREADSPERCELL=${VARBINS}
+fi
+if [[ -n ${UGPBINS} ]]; then
+    [[ ${CALLER} == chisel ]] || die "--ugpbins needs --caller chisel"
+    [[ -z ${VARBINS} ]] || die "use either --varbins or --ugpbins"
+    [[ ${UGPBINS} =~ ^[0-9]+$ ]] || die "--ugpbins needs one of UGP_MIN_SNP_READS, e.g. 100"
+    CHISEL_UGP_BINS=true
+    CHISEL_UGP_MSR=${UGPBINS}
+fi
+if [[ ${CHISEL_UGP_BINS:-false} == true && ${CALLER} == chisel ]]; then
+    [[ ${PHASER} == ugp ]] || die "UGP bins come from the ugp phaser run (--phaser ugp); other phasers are not wired up yet"
+    [[ ${UGP_MODE} == pseudobulk || ${UGP_MODE} == percell ]] \
+        || die "UGP writes bins only with UGP_MODE=pseudobulk or percell (config.sh has '${UGP_MODE}')"
+    [[ " $(echo "${UGP_MIN_SNP_READS}" | tr -d '[],') " == *" ${CHISEL_UGP_MSR} "* ]] \
+        || die "MSR ${CHISEL_UGP_MSR} is not in UGP_MIN_SNP_READS=${UGP_MIN_SNP_READS}, so UGP makes no such bins"
+    [[ ${CHISEL_VARBINS:-false} != true ]] || die "CHISEL_VARBINS and CHISEL_UGP_BINS are both true"
+fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_UGP_BINS=${CHISEL_UGP_BINS:-false},PIN_CHISEL_UGP_MSR=${CHISEL_UGP_MSR:-100}"
 if [[ -n ${CALLER} ]]; then
     CALLER_BP=$(caller_binsize "${CALLER}")
-    note "${CALLER} bin size: ${CALLER_BP} bp"
+    case ${CALLER_BP} in
+        var*)    note "${CALLER} bins: variable (${CALLER_BP#var} SNP reads per cell)" ;;
+        ugpmsr*) note "${CALLER} bins: UGP's, MSR${CALLER_BP#ugpmsr} ($(ugp_bb_file "${CALLER_BP#ugpmsr}"))" ;;
+        *)       note "${CALLER} bin size: ${CALLER_BP} bp" ;;
+    esac
 fi
 
 # ============================================================
@@ -145,6 +176,9 @@ if [[ -z ${AFTER} ]]; then
     fi
     if (( FROM_I >= 1 )); then
         need "$(phaser_output "${PHASER}")" "${PHASER} output" "start from the phase stage (--from phase)"
+        if [[ ${CALLER} == chisel && ${CHISEL_UGP_BINS:-false} == true ]]; then
+            need "$(ugp_bb_file "${CHISEL_UGP_MSR}")" "UGP bins" "rerun UGP with UGP_MODE=pseudobulk (--from phase)"
+        fi
     fi
     if (( FROM_I >= 2 )); then
         need "$(caller_output "${CALLER}" "${PHASER}")" "${CALLER} output for ${PHASER}" "start from the call stage (--from call)"
@@ -177,7 +211,14 @@ ROUTE_DESC="${PHASER}${CALLER:+ -> ${CALLER}}, stages ${FROM}..${TO}"
 PREV="${AFTER}"
 SUMMARY=()
 
+PREP=""
 if runs phase; then
+    if [[ ${PHASER} == ugp && ${UGP_MODE} == pseudobulk ]]; then
+        # UGP pseudobulk mode reads chisel_prep's pooled BAM
+        PREP=$(submit chisel_prep "${PREV}" scripts/chisel_prep.sh)
+        SUMMARY+=("phase (chisel_prep for UGP pseudobulk): ${PREP}")
+        PREV=$(join_deps "${PREV}" "${PREP}")
+    fi
     J=$(submit "phase_${PHASER}" "${PREV}" "scripts/phase_${PHASER}.sh")
     SUMMARY+=("phase (${PHASER}): ${J}")
     PREV=${J}
@@ -191,7 +232,7 @@ if runs call; then
             ;;
         chisel)
             # The barcoded BAM needs only the cell BAMs, so it runs alongside phasing
-            P=$(submit chisel_prep "${AFTER}" scripts/chisel_prep.sh)
+            P=${PREP:-$(submit chisel_prep "${AFTER}" scripts/chisel_prep.sh)}
             J=$(submit call_chisel "$(join_deps "${PREV}" "${P}")" scripts/call_chisel.sh)
             SUMMARY+=("call (chisel_prep): ${P}" "call (chisel): ${J}")
             ;;
