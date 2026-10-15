@@ -111,10 +111,10 @@ HS_RERUN=true                      # true = redo steps even if outputs exist
 UGP_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/genotyping-env"
 UGP_REPO="/n/fs/ragr-research/users/ky8418/Universal-Genotyping-Pipeline"
 UGP_CONDA_PREFIX="/n/fs/ragr-data/users/ky8418/scDNA_sim/ugp_conda"   # same as in step 1
-UGP_DIR="${PROJECT_DIR}/ugp"
+UGP_DIR="${PROJECT_DIR}/ugp_percell"
 UGP_SAMPLE_ID="HG002sim"
 
-UGP_MODE="bulk"            # bulk | percell
+UGP_MODE="percell"            # bulk | percell
 UGP_MAX_CELLS=20           # percell only; 0 = all cells
 
 UGP_CHROMS="1"             # UGP wants bare numbers; it handles the chr prefix itself
