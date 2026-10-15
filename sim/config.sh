@@ -162,7 +162,12 @@ PERFECT_CHUNK_CELLS=50       # BAMs per bcftools mpileup job (they run in parall
 # CHISEL
 # ============================================================
 # Barcoded BAM: ${PROJECT_DIR}/chisel/prep/ (shared). Runs: ${PROJECT_DIR}/chisel_<binsize bp>/<phaser>/
-CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/chisel"
+CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/chisel"           # original CHISEL
+NEW_CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/new_chisel"   # chisel_hmm fork
+# The fork is used automatically for --varbins, --phaserbins and bins_perfect.sh; everything else
+# (chisel_prep, fixed bins) uses CHISEL_ENV. CHISEL_USE_NEW=true also runs fixed bins with the fork,
+# into chisel_new<bp>/ folders so the original CHISEL's chisel_<bp>/ results are kept.
+CHISEL_USE_NEW=false
 CHISEL_SEED=12
 CHISEL_JOBS=16
 CHISEL_BARCODE_LENGTH=12
@@ -191,12 +196,19 @@ CHISEL_VB_MINSNPS=1               # het SNPs per bin
 CHISEL_VB_WINDOW="1kb"            # windows that are merged into bins
 CHISEL_VB_REFVERSION="auto"       # chromosome arms bound the bins: auto (from chr1 length) | hg19 | hg38 | none
 
-# Bins from UGP (chisel --bins). Needs UGP_MODE=pseudobulk (or percell), the modes that write bins, and
-# CHISEL_UGP_MSR must be one of UGP_MIN_SNP_READS: the bins are ${UGP_DIR}/out/bb/MSR<N>/bulk/bb.tsv.gz.
-# They are decided by the UGP_MAX_CELLS cells UGP was given, every one of which has >= N SNP reads
-# per bin. run_pipeline.sh --ugpbins N overrides these per run; the run folder is chisel_ugpmsr<N>/<phaser>/
-CHISEL_UGP_BINS=false
-CHISEL_UGP_MSR=100000
+# Bins made by the phaser (chisel --bins); run_pipeline.sh --phaserbins N (alias --ugpbins N) sets
+# these per run; the run folder is chisel_pbins<N>/<phaser>/. N = pooled SNP reads per bin (all cells).
+#   ugp:     UGP's bins, ${UGP_DIR}/out/bb/MSR<N>/bulk/bb.tsv.gz. Needs UGP_MODE=pseudobulk and N in
+#            UGP_MIN_SNP_READS.
+#   perfect: the same window merge on the TRUE het SNPs (scripts/bins_perfect.sh, CHISEL fork's
+#            chisel_bins in pooled mode): pooled SNP reads of all cells at the true sites (summed
+#            from PERFECT_AD_VCF), read starts of chisel_prep's pooled BAM and of the bulk, UGP's
+#            UGP_MIN_SNP_PER_BIN, UGP_MIN_TOTAL_READS and blacklist, chromosome arms. Not UGP's
+#            gene-aware cuts. -> ${PERFECT_DIR}/bb/MSR<N>/bins.tsv; N must be in PERFECT_BINS_MSR.
+CHISEL_PHASER_BINS=false
+CHISEL_PHASER_MSR=100000
+PERFECT_BINS_MSR="${UGP_MIN_SNP_READS}"   # thresholds bins_perfect.sh makes (same as UGP's by default)
+PERFECT_BINS_BLACKLIST="${UGP_REPO}/resources/data/hg38-blacklist.v2.bed.gz"   # "" = none
 
 
 # ============================================================

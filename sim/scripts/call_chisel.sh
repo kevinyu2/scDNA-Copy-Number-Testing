@@ -13,8 +13,8 @@
 #   phased_snps.tsv   CHISEL's -l input ("#CHR POS PHASE", PHASE = 0|1 or 1|0),
 #                     made from the phaser's VCF
 #   rdr/ baf/ combo/ calls/ clones/ plots/   CHISEL's own folders
-#   bins/             with CHISEL_UGP_BINS=true: the same files for UGP's bins (bins.tsv
-#                     describes them; CLOSE/LIMIT are "given"), read from ugp/out/bb/MSR<N>/
+#   bins/             with CHISEL_PHASER_BINS=true: the same files for the phaser's bins (bins.tsv
+#                     describes them; CLOSE/LIMIT are "given"): UGP's or bins_perfect.sh's
 #                     with CHISEL_VARBINS=true: bins.tsv (the variable-length bins, with
 #                     how each was decided), bins.pdf (diagnostic plots), windows.tsv.gz,
 #                     rdr.tsv (per-cell RDR on these bins), log_binning
@@ -33,7 +33,8 @@ source ./scripts/common.sh
 PHASER=${PHASER:-ugp}
 
 source ${CONDA}
-conda activate ${CHISEL_ENV}
+CHISEL_RUN_ENV=$(chisel_env)
+conda activate "${CHISEL_RUN_ENV}"
 
 set -euo pipefail
 
@@ -42,7 +43,7 @@ CHISEL_CHROMS="${CHISEL_CHROMS:-${CHR}}"
 CHISEL_BINSIZE="${CHISEL_BINSIZE:-5Mb}"
 BIN_BP=$(to_bp "${CHISEL_BINSIZE}")          # fixed bins (with varbins: only the cell-selection pass)
 CHISEL_VARBINS="${CHISEL_VARBINS:-false}"
-CHISEL_UGP_BINS="${CHISEL_UGP_BINS:-false}"
+CHISEL_PHASER_BINS="${CHISEL_PHASER_BINS:-false}"
 CHISEL_BLOCKSIZE="${CHISEL_BLOCKSIZE:-50kb}"
 CHISEL_MINREADS="${CHISEL_MINREADS:-10000}"
 CHISEL_MAXPLOIDY="${CHISEL_MAXPLOIDY:-3}"
@@ -67,7 +68,7 @@ REF_DICT="${REF%.*}.dict"     # CHISEL reads chromosome lengths from <ref minus 
 # ============================================================
 
 for tool in chisel bcftools samtools python2.7; do
-    command -v "$tool" >/dev/null || die "'$tool' not found in env ${CHISEL_ENV}"
+    command -v "$tool" >/dev/null || die "'$tool' not found in env ${CHISEL_RUN_ENV}"
 done
 
 for f in "${VCF}" "${CHISEL_BARCODED_BAM}" "${CHISEL_BARCODED_BAM}.bai" "${CHISEL_BARCODES}" \
@@ -127,13 +128,16 @@ for d in rdr baf bins combo calls clones plots; do
     rm -rf "${RUN_DIR:?}/${d}"
 done
 
+note "CHISEL env: ${CHISEL_RUN_ENV}"
+if [[ ${CHISEL_RUN_ENV} != "${CHISEL_ENV}" ]]; then
+    chisel -h | grep -q -- "--varbins" || die "env ${CHISEL_RUN_ENV} has no chisel_hmm fork (chisel -h lacks --varbins)"
+fi
 VB_ARGS=()
-if [[ ${CHISEL_UGP_BINS} == true ]]; then
-    [[ ${PHASER} == ugp ]] || die "UGP bins need the ugp phaser"
-    UGP_BB=$(ugp_bb_file "${CHISEL_UGP_MSR}")
-    [[ -s ${UGP_BB} ]] || die "missing ${UGP_BB}: run UGP with UGP_MODE=pseudobulk and ${CHISEL_UGP_MSR} in UGP_MIN_SNP_READS"
-    VB_ARGS=(--bins "${UGP_BB}")
-    note "UGP bins: ${UGP_BB} ($(zcat "${UGP_BB}" | grep -vc '^#') bins)"
+if [[ ${CHISEL_PHASER_BINS} == true ]]; then
+    PBINS=$(phaser_bins_file "${PHASER}" "${CHISEL_PHASER_MSR}")
+    [[ -s ${PBINS} ]] || die "missing ${PBINS}: for ugp run UGP with UGP_MODE=pseudobulk and ${CHISEL_PHASER_MSR} in UGP_MIN_SNP_READS; for perfect run scripts/bins_perfect.sh"
+    VB_ARGS=(--bins "${PBINS}")
+    note "${PHASER} bins: ${PBINS} ($( (zcat -f "${PBINS}") | grep -vc '^#') bins)"
 elif [[ ${CHISEL_VARBINS} == true ]]; then
     VB_ARGS=(--varbins
              --minsnpreadspercell "${CHISEL_VB_MINSNPREADSPERCELL:-25}"
@@ -185,7 +189,7 @@ N_SEL=$(awk '$1 != "normal"' "${TOTAL}" | awk 'END { print NR }')
 note "Cells passing minreads: ${N_SEL}/${N_PREP}"
 
 [[ -s ${RUN_DIR}/baf/baf.tsv ]]     || step_failed baf "empty baf.tsv"
-if [[ ${CHISEL_VARBINS} == true || ${CHISEL_UGP_BINS} == true ]]; then
+if [[ ${CHISEL_VARBINS} == true || ${CHISEL_PHASER_BINS} == true ]]; then
     BINS="${RUN_DIR}/bins/bins.tsv"
     [[ -s ${BINS} ]] || { echo "ERROR: CHISEL binning step: no bins.tsv" >&2; tail -n 20 "${RUN_DIR}/bins/log_binning" >&2; exit 1; }
     [[ -s ${RUN_DIR}/bins/rdr.tsv ]] || { echo "ERROR: CHISEL RDR on variable bins: empty rdr.tsv" >&2; tail -n 20 "${RUN_DIR}/bins/log_rdr" >&2; exit 1; }

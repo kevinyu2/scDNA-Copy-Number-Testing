@@ -16,8 +16,8 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_HS_BINSIZE:-} ]] && HS_BINSIZE=${PIN_HS_BINSIZE}
 [[ -n ${PIN_CHISEL_VARBINS:-} ]] && CHISEL_VARBINS=${PIN_CHISEL_VARBINS}
 [[ -n ${PIN_CHISEL_VB_MSR:-} ]] && CHISEL_VB_MINSNPREADSPERCELL=${PIN_CHISEL_VB_MSR}
-[[ -n ${PIN_CHISEL_UGP_BINS:-} ]] && CHISEL_UGP_BINS=${PIN_CHISEL_UGP_BINS}
-[[ -n ${PIN_CHISEL_UGP_MSR:-} ]] && CHISEL_UGP_MSR=${PIN_CHISEL_UGP_MSR}
+[[ -n ${PIN_CHISEL_PHASER_BINS:-} ]] && CHISEL_PHASER_BINS=${PIN_CHISEL_PHASER_BINS}
+[[ -n ${PIN_CHISEL_PHASER_MSR:-} ]] && CHISEL_PHASER_MSR=${PIN_CHISEL_PHASER_MSR}
 
 # "5Mb" / "500kb" / "5000000" -> bp. Same rules as CHISEL's -b: whole numbers,
 # optional suffix kb or Mb (case-sensitive).
@@ -34,10 +34,12 @@ to_bp() {
 caller_binsize() {                                   # caller -> bin size in bp
     case $1 in
         hiscanner) to_bp "${HS_BINSIZE}" ;;
-        chisel)    if [[ ${CHISEL_UGP_BINS:-false} == true ]]; then
-                       echo "ugpmsr${CHISEL_UGP_MSR}"               # names chisel_ugpmsr<N>/ folders
+        chisel)    if [[ ${CHISEL_PHASER_BINS:-false} == true ]]; then
+                       echo "pbins${CHISEL_PHASER_MSR}"                # names chisel_pbins<N>/<phaser>/ folders
                    elif [[ ${CHISEL_VARBINS:-false} == true ]]; then
                        echo "var${CHISEL_VB_MINSNPREADSPERCELL}"   # names chisel_var<N>/ folders
+                   elif [[ ${CHISEL_USE_NEW:-false} == true ]]; then
+                       echo "new$(to_bp "${CHISEL_BINSIZE}")"        # fixed bins with the fork: chisel_new<bp>/
                    else
                        to_bp "${CHISEL_BINSIZE}"
                    fi ;;
@@ -77,7 +79,22 @@ CN_MAT_DIR="${SIM_DIR}/cn_mat"
 SCAN2_DIR="${PROJECT_DIR}/scan2_out"
 # UGP_DIR is set in config.sh
 UGP_PHASED_VCF="${UGP_DIR}/out/phase/phased_het_snps.vcf.gz"
-ugp_bb_file() { echo "${UGP_DIR}/out/bb/MSR$1/bulk/bb.tsv.gz"; }   # bins of UGP percell mode, per min_snp_reads
+ugp_bb_file() { echo "${UGP_DIR}/out/bb/MSR$1/bulk/bb.tsv.gz"; }   # bins of UGP pseudobulk/percell mode, per min_snp_reads
+chisel_env() {   # conda env of the CHISEL run: the fork for its new features, else the original
+    if [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true || ${CHISEL_USE_NEW:-false} == true ]]; then
+        echo "${NEW_CHISEL_ENV:?NEW_CHISEL_ENV is not set in config.sh}"
+    else
+        echo "${CHISEL_ENV}"
+    fi
+}
+perfect_bins_file() { echo "${PERFECT_DIR}/bb/MSR$1/bins.tsv"; }   # bins of scripts/bins_perfect.sh, per min_snp_reads
+phaser_bins_file() {   # phaser MSR -> its variable-length bins for chisel --bins
+    case $1 in
+        ugp)     ugp_bb_file "$2" ;;
+        perfect) perfect_bins_file "$2" ;;
+        *)       die "phaser '$1' makes no bins (only ugp and perfect)" ;;
+    esac
+}
 
 # perfect: true phase from the haplotype assemblies (phase_perfect.sh)
 PERFECT_DIR="${PROJECT_DIR}/perfect"

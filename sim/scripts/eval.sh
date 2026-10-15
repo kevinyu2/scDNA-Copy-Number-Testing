@@ -43,8 +43,8 @@ LEVELS=all
 case ${CALLER} in
     hiscanner) LABEL="HiScanner (${PHASER}, $(caller_binsize hiscanner) bp bins)"; LEVELS=allele_specific ;;
     chisel)    CHISEL_EVAL_CN="${CHISEL_EVAL_CN:-corrected}"
-               if [[ ${CHISEL_UGP_BINS:-false} == true ]]; then
-                   LABEL="CHISEL (${PHASER}, UGP bins MSR${CHISEL_UGP_MSR}, ${CHISEL_EVAL_CN})"
+               if [[ ${CHISEL_PHASER_BINS:-false} == true ]]; then
+                   LABEL="CHISEL (${PHASER}, ${PHASER} bins MSR${CHISEL_PHASER_MSR}, ${CHISEL_EVAL_CN})"
                elif [[ ${CHISEL_VARBINS:-false} == true ]]; then
                    LABEL="CHISEL (${PHASER}, variable bins, ${CHISEL_VB_MINSNPREADSPERCELL} SNP reads/cell, ${CHISEL_EVAL_CN})"
                else
