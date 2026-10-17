@@ -153,6 +153,10 @@ if [[ ${CHISEL_PHASER_BINS:-false} == true && ${CALLER} == chisel ]]; then
                 || die "${CHISEL_PHASER_PER_CELL} per cell is not in PHASER_BINS_PER_CELL=${PHASER_BINS_PER_CELL}" ;;
         *)  die "phaser '${PHASER}' makes no bins; --phaserbins works with --phaser ugp or perfect" ;;
     esac
+    (( PHASER_BINS_NCELLS > 0 )) || die "cannot count cells: TREE_FILE=${TREE_FILE} is not readable"
+    NBAMS=$(compgen -G "${CELL_BAM_DIR}/*.bam" | wc -l)
+    (( NBAMS == 0 || NBAMS == PHASER_BINS_NCELLS )) \
+        || note "WARNING: ${NBAMS} cell BAMs in ${CELL_BAM_DIR}, but NUM_BATCHES x tree cells = ${PHASER_BINS_NCELLS}"
     [[ ${CHISEL_VARBINS:-false} != true ]] || die "CHISEL_VARBINS and CHISEL_PHASER_BINS are both true"
 fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")

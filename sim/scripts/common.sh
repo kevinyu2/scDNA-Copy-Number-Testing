@@ -89,6 +89,7 @@ chisel_env() {   # conda env of the CHISEL run: the fork for its new features, e
 }
 perfect_bins_file() { echo "${PERFECT_DIR}/bb/MSR$1/bins.tsv"; }   # bins of scripts/bins_perfect.sh, per min_snp_reads
 phaser_bins_file() {   # phaser N(per cell) -> its variable-length bins for chisel --bins (files use pooled N x cells)
+    (( PHASER_BINS_NCELLS > 0 )) || die "PHASER_BINS_NCELLS is 0: cannot read TREE_FILE=${TREE_FILE}"
     local pooled=$(( $2 * PHASER_BINS_NCELLS ))
     case $1 in
         ugp)     ugp_bb_file "${pooled}" ;;

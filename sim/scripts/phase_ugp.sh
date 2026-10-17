@@ -73,6 +73,8 @@ if [[ ${UGP_MODE} == percell ]]; then
     fi
     echo "percell mode: ${#CELL_BAMS[@]} cells"
 elif [[ ${UGP_MODE} == pseudobulk ]]; then
+    (( PHASER_BINS_NCELLS > 0 )) || die "pseudobulk mode needs the number of cells: TREE_FILE=${TREE_FILE} is not readable"
+    echo "pseudobulk thresholds: ${PHASER_BINS_PER_CELL} SNP reads per cell x ${PHASER_BINS_NCELLS} cells = ${UGP_MIN_SNP_READS}"
     # all cells in one BAM; UGP's scDNA pileup uses --ignore-RG, so it is one sample
     [[ -s ${CHISEL_BARCODED_BAM} && -e ${CHISEL_BARCODED_BAM}.bai ]] \
         || die "pseudobulk mode needs chisel_prep's ${CHISEL_BARCODED_BAM} (+ .bai); run scripts/chisel_prep.sh first"

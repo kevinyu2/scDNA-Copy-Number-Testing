@@ -135,7 +135,10 @@ EAGLE_GENMAP="${RESOURCES_DIR%/}/genetic_map_hg38_withX.txt.gz"
 # value x PHASER_BINS_NCELLS, and its outputs keep pooled names: 40/cell x 1000 cells -> MSR40000/.
 # 40/cell is roughly 500 kb mean bins on chr1 here. run_pipeline.sh --phaserbins N picks N per cell.
 PHASER_BINS_PER_CELL="[20, 40, 80]"   # SNP-covering reads per cell per bin, on average over cells
-PHASER_BINS_NCELLS=1000               # cells in the pool (all cells of chisel_prep's barcoded BAM)
+# Cells in the pool, from the simulation: NUM_BATCHES x the cells of one tree (the sum of its leaves,
+# first line of TREE_FILE, e.g. ((20[..],10[..])[..],20[..]) = 50). 0 if TREE_FILE cannot be read.
+tree_cells() { [[ -r $1 ]] || { echo 0; return; }; awk 'NF && $0 !~ /^#/ { print; exit }' "$1" | sed 's/\[[^]]*\]//g' | grep -o '[0-9]\+' | awk '{ s += $1 } END { print s + 0 }'; }
+PHASER_BINS_NCELLS=$(( NUM_BATCHES * $(tree_cells "${TREE_FILE}") ))
 pooled_msr() { local v out=""; for v in $(echo "$1" | tr -d '[],'); do out+="${out:+, }$(( v * PHASER_BINS_NCELLS ))"; done; echo "[${out}]"; }
 UGP_MIN_SNP_READS="$(pooled_msr "${PHASER_BINS_PER_CELL}")"   # pooled, written to UGP's config: [20000, 40000, 80000]
 UGP_MIN_SNP_PER_BIN=1                # het SNPs per bin (UGP default: 1)
