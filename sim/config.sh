@@ -131,8 +131,7 @@ EAGLE_GENMAP="${RESOURCES_DIR%/}/genetic_map_hg38_withX.txt.gz"
 
 # Adaptive binning (pseudobulk/percell; bulk mode stops before binning)
 # A bin closes when EVERY tumor dataset meets these thresholds. In pseudobulk mode there is one,
-# the pool of all cells, so the counts are POOLED: per-cell target x #cells. With 1000 cells at
-# ~0.23x, 25000/50000/100000 = 25/50/100 SNP reads per cell, roughly 150/300/600 kb bins
+# the pool of all cells, so the counts are POOLED: per-cell target x #cells. 40000 is roughly 500kb mean
 # (~1500/800/400 bins on chr1). In percell mode they are per cell.
 UGP_MIN_SNP_READS="[20000, 40000, 80000]"   # SNP-covering reads per bin per tumor dataset; each value gives its own MSR{n}/ output
 UGP_MIN_SNP_PER_BIN=1                # het SNPs per bin (UGP default: 1)
@@ -206,7 +205,7 @@ CHISEL_VB_REFVERSION="auto"       # chromosome arms bound the bins: auto (from c
 #            UGP_MIN_SNP_PER_BIN, UGP_MIN_TOTAL_READS and blacklist, chromosome arms. Not UGP's
 #            gene-aware cuts. -> ${PERFECT_DIR}/bb/MSR<N>/bins.tsv; N must be in PERFECT_BINS_MSR.
 CHISEL_PHASER_BINS=false
-CHISEL_PHASER_MSR=100000
+CHISEL_PHASER_MSR=40000
 PERFECT_BINS_MSR="${UGP_MIN_SNP_READS}"   # thresholds bins_perfect.sh makes (same as UGP's by default)
 PERFECT_BINS_BLACKLIST="${UGP_REPO}/resources/data/hg38-blacklist.v2.bed.gz"   # "" = none
 
