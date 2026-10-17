@@ -134,7 +134,7 @@ EAGLE_GENMAP="${RESOURCES_DIR%/}/genetic_map_hg38_withX.txt.gz"
 # the pool of all cells, so the counts are POOLED: per-cell target x #cells. With 1000 cells at
 # ~0.23x, 25000/50000/100000 = 25/50/100 SNP reads per cell, roughly 150/300/600 kb bins
 # (~1500/800/400 bins on chr1). In percell mode they are per cell.
-UGP_MIN_SNP_READS="[25000, 50000, 100000]"   # SNP-covering reads per bin per tumor dataset; each value gives its own MSR{n}/ output
+UGP_MIN_SNP_READS="[20400, 40800, 81600]"   # SNP-covering reads per bin per tumor dataset; each value gives its own MSR{n}/ output
 UGP_MIN_SNP_PER_BIN=1                # het SNPs per bin (UGP default: 1)
 UGP_MIN_TOTAL_READS=1000             # read starts per bin in every dataset, incl. the bulk; 0 disables (UGP default: 5000)
 UGP_GENE_AWARE_BINNING=true          # never cut inside a gene (UGP default: true)
