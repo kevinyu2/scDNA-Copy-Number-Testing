@@ -17,7 +17,7 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_VARBINS:-} ]] && CHISEL_VARBINS=${PIN_CHISEL_VARBINS}
 [[ -n ${PIN_CHISEL_VB_MSR:-} ]] && CHISEL_VB_MINSNPREADSPERCELL=${PIN_CHISEL_VB_MSR}
 [[ -n ${PIN_CHISEL_PHASER_BINS:-} ]] && CHISEL_PHASER_BINS=${PIN_CHISEL_PHASER_BINS}
-[[ -n ${PIN_CHISEL_PHASER_MSR:-} ]] && CHISEL_PHASER_MSR=${PIN_CHISEL_PHASER_MSR}
+[[ -n ${PIN_CHISEL_PHASER_PER_CELL:-} ]] && CHISEL_PHASER_PER_CELL=${PIN_CHISEL_PHASER_PER_CELL}
 
 # "5Mb" / "500kb" / "5000000" -> bp. Same rules as CHISEL's -b: whole numbers,
 # optional suffix kb or Mb (case-sensitive).
@@ -35,7 +35,7 @@ caller_binsize() {                                   # caller -> bin size in bp
     case $1 in
         hiscanner) to_bp "${HS_BINSIZE}" ;;
         chisel)    if [[ ${CHISEL_PHASER_BINS:-false} == true ]]; then
-                       echo "pbins${CHISEL_PHASER_MSR}"                # names chisel_pbins<N>/<phaser>/ folders
+                       echo "pbins${CHISEL_PHASER_PER_CELL}"                # names chisel_pbins<N per cell>/<phaser>/ folders
                    elif [[ ${CHISEL_VARBINS:-false} == true ]]; then
                        echo "var${CHISEL_VB_MINSNPREADSPERCELL}"   # names chisel_var<N>/ folders
                    elif [[ ${CHISEL_USE_NEW:-false} == true ]]; then
@@ -88,10 +88,11 @@ chisel_env() {   # conda env of the CHISEL run: the fork for its new features, e
     fi
 }
 perfect_bins_file() { echo "${PERFECT_DIR}/bb/MSR$1/bins.tsv"; }   # bins of scripts/bins_perfect.sh, per min_snp_reads
-phaser_bins_file() {   # phaser MSR -> its variable-length bins for chisel --bins
+phaser_bins_file() {   # phaser N(per cell) -> its variable-length bins for chisel --bins (files use pooled N x cells)
+    local pooled=$(( $2 * PHASER_BINS_NCELLS ))
     case $1 in
-        ugp)     ugp_bb_file "$2" ;;
-        perfect) perfect_bins_file "$2" ;;
+        ugp)     ugp_bb_file "${pooled}" ;;
+        perfect) perfect_bins_file "${pooled}" ;;
         *)       die "phaser '$1' makes no bins (only ugp and perfect)" ;;
     esac
 }

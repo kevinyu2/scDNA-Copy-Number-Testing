@@ -40,6 +40,8 @@ BB_DIR="${PERFECT_DIR}/bb"
 mkdir -p "${BB_DIR}"
 SNPS="${BB_DIR}/pooled_snp_depth.tsv.gz"
 NCELLS=$(bcftools query -l "${PERFECT_AD_VCF}" | grep -vcx bulk)
+[[ ${NCELLS} -eq ${PHASER_BINS_NCELLS} ]] \
+    || note "WARNING: ${PERFECT_AD_VCF} has ${NCELLS} cells but PHASER_BINS_NCELLS=${PHASER_BINS_NCELLS}; folders use the pooled count N x PHASER_BINS_NCELLS"
 
 if [[ ! -s ${SNPS} ]]; then
     note "Summing allele depths of ${NCELLS} cells at the true het SNPs"

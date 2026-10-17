@@ -134,8 +134,8 @@ if [[ ${CHISEL_RUN_ENV} != "${CHISEL_ENV}" ]]; then
 fi
 VB_ARGS=()
 if [[ ${CHISEL_PHASER_BINS} == true ]]; then
-    PBINS=$(phaser_bins_file "${PHASER}" "${CHISEL_PHASER_MSR}")
-    [[ -s ${PBINS} ]] || die "missing ${PBINS}: for ugp run UGP with UGP_MODE=pseudobulk and ${CHISEL_PHASER_MSR} in UGP_MIN_SNP_READS; for perfect run scripts/bins_perfect.sh"
+    PBINS=$(phaser_bins_file "${PHASER}" "${CHISEL_PHASER_PER_CELL}")
+    [[ -s ${PBINS} ]] || die "missing ${PBINS}: for ugp run UGP with UGP_MODE=pseudobulk and ${CHISEL_PHASER_PER_CELL} in PHASER_BINS_PER_CELL; for perfect run scripts/bins_perfect.sh"
     VB_ARGS=(--bins "${PBINS}")
     note "${PHASER} bins: ${PBINS} ($( (zcat -f "${PBINS}") | grep -vc '^#') bins)"
 elif [[ ${CHISEL_VARBINS} == true ]]; then

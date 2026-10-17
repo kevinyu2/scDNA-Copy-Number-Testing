@@ -23,10 +23,10 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
                  named by it: <caller>_<bp>/ and eval/<phaser>_<caller>_<bp>/
   --varbins N    CHISEL only: variable-length bins with N mean SNP-covering reads per
                  cell per bin (chisel --varbins); output folders are chisel_var<N>/
-  --phaserbins N CHISEL only: variable-length bins made by the phaser for N pooled SNP
-                 reads per bin: --phaser ugp uses UGP's (UGP_MODE=pseudobulk, N in
-                 UGP_MIN_SNP_READS), --phaser perfect makes them from the true het SNPs
-                 (scripts/bins_perfect.sh, N in PERFECT_BINS_MSR). Folders chisel_pbins<N>/
+  --phaserbins N CHISEL only: variable-length bins made by the phaser, N mean SNP reads per
+                 cell per bin (N in PHASER_BINS_PER_CELL): --phaser ugp uses UGP's
+                 (UGP_MODE=pseudobulk), --phaser perfect makes them from the true het SNPs
+                 (scripts/bins_perfect.sh). Folders chisel_pbins<N>/
   --ugpbins N    same as --phaserbins N
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
@@ -137,32 +137,32 @@ fi
 if [[ -n ${UGPBINS} ]]; then
     [[ ${CALLER} == chisel ]] || die "--phaserbins needs --caller chisel"
     [[ -z ${VARBINS} ]] || die "use either --varbins or --phaserbins"
-    [[ ${UGPBINS} =~ ^[0-9]+$ ]] || die "--phaserbins needs a whole number of pooled SNP reads, e.g. 100000"
+    [[ ${UGPBINS} =~ ^[0-9]+$ ]] || die "--phaserbins needs a whole number of SNP reads per cell, e.g. 40"
     CHISEL_PHASER_BINS=true
-    CHISEL_PHASER_MSR=${UGPBINS}
+    CHISEL_PHASER_PER_CELL=${UGPBINS}
 fi
 if [[ ${CHISEL_PHASER_BINS:-false} == true && ${CALLER} == chisel ]]; then
     case ${PHASER} in
         ugp)
             [[ ${UGP_MODE} == pseudobulk || ${UGP_MODE} == percell ]] \
                 || die "UGP writes bins only with UGP_MODE=pseudobulk (config.sh has '${UGP_MODE}')"
-            [[ " $(echo "${UGP_MIN_SNP_READS}" | tr -d '[],') " == *" ${CHISEL_PHASER_MSR} "* ]] \
-                || die "MSR ${CHISEL_PHASER_MSR} is not in UGP_MIN_SNP_READS=${UGP_MIN_SNP_READS}, so UGP makes no such bins" ;;
+            [[ " $(echo "${PHASER_BINS_PER_CELL}" | tr -d '[],') " == *" ${CHISEL_PHASER_PER_CELL} "* ]] \
+                || die "${CHISEL_PHASER_PER_CELL} per cell is not in PHASER_BINS_PER_CELL=${PHASER_BINS_PER_CELL}, so UGP makes no such bins" ;;
         perfect)
-            [[ " $(echo "${PERFECT_BINS_MSR}" | tr -d '[],') " == *" ${CHISEL_PHASER_MSR} "* ]] \
-                || die "MSR ${CHISEL_PHASER_MSR} is not in PERFECT_BINS_MSR=${PERFECT_BINS_MSR}" ;;
+            [[ " $(echo "${PHASER_BINS_PER_CELL}" | tr -d '[],') " == *" ${CHISEL_PHASER_PER_CELL} "* ]] \
+                || die "${CHISEL_PHASER_PER_CELL} per cell is not in PHASER_BINS_PER_CELL=${PHASER_BINS_PER_CELL}" ;;
         *)  die "phaser '${PHASER}' makes no bins; --phaserbins works with --phaser ugp or perfect" ;;
     esac
     [[ ${CHISEL_VARBINS:-false} != true ]] || die "CHISEL_VARBINS and CHISEL_PHASER_BINS are both true"
 fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_MSR=${CHISEL_PHASER_MSR:-100}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100}"
 if [[ -n ${CALLER} ]]; then
     CALLER_BP=$(caller_binsize "${CALLER}")
     case ${CALLER_BP} in
         var*)    note "${CALLER} bins: variable (${CALLER_BP#var} SNP reads per cell)" ;;
-        pbins*)  note "${CALLER} bins: ${PHASER}'s, MSR${CALLER_BP#pbins} ($(phaser_bins_file "${PHASER}" "${CALLER_BP#pbins}"))" ;;
+        pbins*)  note "${CALLER} bins: ${PHASER}'s, ${CALLER_BP#pbins} SNP reads per cell ($(phaser_bins_file "${PHASER}" "${CALLER_BP#pbins}"))" ;;
         *)       note "${CALLER} bin size: ${CALLER_BP} bp" ;;
     esac
 fi
@@ -186,7 +186,7 @@ if [[ -z ${AFTER} ]]; then
     if (( FROM_I >= 1 )); then
         need "$(phaser_output "${PHASER}")" "${PHASER} output" "start from the phase stage (--from phase)"
         if [[ ${CALLER} == chisel && ${CHISEL_PHASER_BINS:-false} == true && ${PHASER} == ugp ]]; then
-            need "$(ugp_bb_file "${CHISEL_PHASER_MSR}")" "UGP bins" "rerun UGP with UGP_MODE=pseudobulk (--from phase)"
+            need "$(phaser_bins_file ugp "${CHISEL_PHASER_PER_CELL}")" "UGP bins" "rerun UGP with UGP_MODE=pseudobulk (--from phase)"
         fi
     fi
     if (( FROM_I >= 2 )); then

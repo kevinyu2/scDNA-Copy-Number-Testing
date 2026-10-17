@@ -130,10 +130,14 @@ UGP_GTF="${RESOURCES_DIR%/}/gencode.v38.annotation.gtf.gz"
 EAGLE_GENMAP="${RESOURCES_DIR%/}/genetic_map_hg38_withX.txt.gz"
 
 # Adaptive binning (pseudobulk/percell; bulk mode stops before binning)
-# A bin closes when EVERY tumor dataset meets these thresholds. In pseudobulk mode there is one,
-# the pool of all cells, so the counts are POOLED: per-cell target x #cells. 40000 is roughly 500kb mean
-# (~1500/800/400 bins on chr1). In percell mode they are per cell.
-UGP_MIN_SNP_READS="[20000, 40000, 80000]"   # SNP-covering reads per bin per tumor dataset; each value gives its own MSR{n}/ output
+# Thresholds are set as MEAN SNP-covering reads per cell per bin. In pseudobulk mode UGP sees one
+# tumor dataset, the pool of all cells, so it (and bins_perfect.sh) gets the POOLED count
+# value x PHASER_BINS_NCELLS, and its outputs keep pooled names: 40/cell x 1000 cells -> MSR40000/.
+# 40/cell is roughly 500 kb mean bins on chr1 here. run_pipeline.sh --phaserbins N picks N per cell.
+PHASER_BINS_PER_CELL="[20, 40, 80]"   # SNP-covering reads per cell per bin, on average over cells
+PHASER_BINS_NCELLS=1000               # cells in the pool (all cells of chisel_prep's barcoded BAM)
+pooled_msr() { local v out=""; for v in $(echo "$1" | tr -d '[],'); do out+="${out:+, }$(( v * PHASER_BINS_NCELLS ))"; done; echo "[${out}]"; }
+UGP_MIN_SNP_READS="$(pooled_msr "${PHASER_BINS_PER_CELL}")"   # pooled, written to UGP's config: [20000, 40000, 80000]
 UGP_MIN_SNP_PER_BIN=1                # het SNPs per bin (UGP default: 1)
 UGP_MIN_TOTAL_READS=1000             # read starts per bin in every dataset, incl. the bulk; 0 disables (UGP default: 5000)
 UGP_GENE_AWARE_BINNING=true          # never cut inside a gene (UGP default: true)
@@ -196,17 +200,17 @@ CHISEL_VB_WINDOW="1kb"            # windows that are merged into bins
 CHISEL_VB_REFVERSION="auto"       # chromosome arms bound the bins: auto (from chr1 length) | hg19 | hg38 | none
 
 # Bins made by the phaser (chisel --bins); run_pipeline.sh --phaserbins N (alias --ugpbins N) sets
-# these per run; the run folder is chisel_pbins<N>/<phaser>/. N = pooled SNP reads per bin (all cells).
-#   ugp:     UGP's bins, ${UGP_DIR}/out/bb/MSR<N>/bulk/bb.tsv.gz. Needs UGP_MODE=pseudobulk and N in
-#            UGP_MIN_SNP_READS.
+# these per run; the run folder is chisel_pbins<N>/<phaser>/. N = SNP reads PER CELL per bin and must
+# be in PHASER_BINS_PER_CELL; the bins files use the pooled count P = N x PHASER_BINS_NCELLS.
+#   ugp:     UGP's bins, ${UGP_DIR}/out/bb/MSR<P>/bulk/bb.tsv.gz. Needs UGP_MODE=pseudobulk.
 #   perfect: the same window merge on the TRUE het SNPs (scripts/bins_perfect.sh, CHISEL fork's
 #            chisel_bins in pooled mode): pooled SNP reads of all cells at the true sites (summed
 #            from PERFECT_AD_VCF), read starts of chisel_prep's pooled BAM and of the bulk, UGP's
 #            UGP_MIN_SNP_PER_BIN, UGP_MIN_TOTAL_READS and blacklist, chromosome arms. Not UGP's
-#            gene-aware cuts. -> ${PERFECT_DIR}/bb/MSR<N>/bins.tsv; N must be in PERFECT_BINS_MSR.
+#            gene-aware cuts. -> ${PERFECT_DIR}/bb/MSR<P>/bins.tsv
 CHISEL_PHASER_BINS=false
-CHISEL_PHASER_MSR=40000
-PERFECT_BINS_MSR="${UGP_MIN_SNP_READS}"   # thresholds bins_perfect.sh makes (same as UGP's by default)
+CHISEL_PHASER_PER_CELL=40
+PERFECT_BINS_MSR="${UGP_MIN_SNP_READS}"   # pooled thresholds bins_perfect.sh makes (same as UGP's)
 PERFECT_BINS_BLACKLIST="${UGP_REPO}/resources/data/hg38-blacklist.v2.bed.gz"   # "" = none
 
 
