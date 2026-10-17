@@ -16,7 +16,8 @@
 #    pooled SNP reads >= N, het SNPs >= UGP_MIN_SNP_PER_BIN and read starts >= UGP_MIN_TOTAL_READS
 #    in both chisel_prep's pooled BAM and the bulk. Window counts are cached, so only the first
 #    threshold reads the BAMs.                           -> ${PERFECT_DIR}/bb/MSR<N>/bins.tsv
-#    (+ bins.pdf, windows.tsv.gz, log_binning). Existing outputs are kept.
+#    (+ bins.summary.tsv: #bins, mean and median size; bins.pdf, windows.tsv.gz, log_binning).
+#    Existing outputs are kept.
 # Differences to UGP's bins: the true het SNPs instead of UGP's, no gene-aware boundaries.
 LOG_TAG=bins_perfect
 source "${CONFIG_FILE:-./config.sh}"
@@ -68,7 +69,7 @@ for MSR in $(echo "${PERFECT_BINS_MSR}" | tr -d '[],'); do
         --minsnpreads "${MSR}" --minsnpreadspercell 0 \
         --mintotalreads "${UGP_MIN_TOTAL_READS}" --mintotalreadspercell 0 --minsnps "${UGP_MIN_SNP_PER_BIN}" \
         "${BL_ARGS[@]+"${BL_ARGS[@]}"}" \
-        --counts "${BB_DIR}/window_counts.npz" --windows "${OUT}/windows.tsv.gz" \
+        --counts "${BB_DIR}/window_counts.npz" --windows "${OUT}/windows.tsv.gz" --summary "${OUT}/bins.summary.tsv" \
         -j "${THREADS}" --outdir "${OUT}" > "${OUT}/bins.tsv.tmp" 2> "${OUT}/log_binning" \
         || { tail -n 20 "${OUT}/log_binning" >&2; die "chisel_bins failed for MSR${MSR}"; }
     mv "${OUT}/bins.tsv.tmp" "${OUT}/bins.tsv"

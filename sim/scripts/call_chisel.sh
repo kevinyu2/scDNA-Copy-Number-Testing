@@ -194,6 +194,7 @@ if [[ ${CHISEL_VARBINS} == true || ${CHISEL_PHASER_BINS} == true ]]; then
     [[ -s ${BINS} ]] || { echo "ERROR: CHISEL binning step: no bins.tsv" >&2; tail -n 20 "${RUN_DIR}/bins/log_binning" >&2; exit 1; }
     [[ -s ${RUN_DIR}/bins/rdr.tsv ]] || { echo "ERROR: CHISEL RDR on variable bins: empty rdr.tsv" >&2; tail -n 20 "${RUN_DIR}/bins/log_rdr" >&2; exit 1; }
     note "Variable-length bins: $(grep -vc '^#' "${BINS}") -> ${BINS} (plots: ${RUN_DIR}/bins/bins.pdf)"
+    [[ -s ${RUN_DIR}/bins/bins.summary.tsv ]] && note "Bin summary: $(tail -n 1 "${RUN_DIR}/bins/bins.summary.tsv" | awk '{ printf "%d bins, mean %d bp, median %d bp", $1, $2, $3 }')"
 fi
 [[ -s ${RUN_DIR}/combo/combo.tsv ]] || step_failed combo "empty combo.tsv"
 
