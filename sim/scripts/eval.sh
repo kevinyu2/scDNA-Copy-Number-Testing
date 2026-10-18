@@ -144,7 +144,7 @@ python3 -B "${SCRIPTS}/eval_calls.py" \
     --orientation "${EVAL_ORIENTATION}" \
     --cells-per-page "${EVAL_CELLS_PER_PAGE}" \
     --max-cells-plot "${EVAL_MAX_CELLS_PLOT}" \
-    --conf-unit "${EVAL_CONF_UNIT:-bp}" \
+    --seg-min-frac "${EVAL_SEG_MIN_FRAC:-0.75}" \
     --levels "${LEVELS}"
 
 note "Done: ${OUT_DIR}"

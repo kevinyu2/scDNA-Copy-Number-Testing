@@ -65,9 +65,10 @@ Bin size comes from `CHISEL_BINSIZE` / `HS_BINSIZE` in `config.sh`, or `--binsiz
 (`./run_pipeline.sh --phaser ugp --caller chisel --from call --binsize 1Mb`). It is pinned
 when you submit, so editing `config.sh` afterwards doesn't affect queued jobs.
 
-Eval outputs: `summary.txt` (accuracy + gain/normal/loss TP/TN/FP/FN), `confusion_segments_cn.pdf` and
-`confusion_segments_events.pdf` (true vs called CN, and gain/normal/loss; base-pair weighted)
-(+ `section_confusion.tsv`), `per_cell_tracks{,_bin,_ideal}.pdf`, and `calls.tsv` (the
+Eval outputs: `summary.txt` (accuracy + gain/normal/loss TP/TN/FP/FN), `confusion_segments_{cn,events}_<variant>.pdf`
+(true vs called CN, and gain/normal/loss) in four variants:
+`_bp`, `_cells` (one majority call per cell x segment), and `_bp_min75` / `_cells_min75` (only bins at least
+75% inside the segment; `EVAL_SEG_MIN_FRAC`) (+ `section_confusion.tsv`, `section_coverage.tsv`), `per_cell_tracks{,_bin,_ideal}.pdf`, and `calls.tsv` (the
 converted calls that were scored). For HiScanner only the allele-specific level is
 shown (`per_cell_tracks_ideal.pdf`).
 

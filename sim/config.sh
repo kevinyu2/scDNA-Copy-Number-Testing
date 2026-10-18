@@ -227,8 +227,9 @@ EVAL_PURITY=0.9           # min fraction of a bin in one true segment to score i
 EVAL_ORIENTATION=global   # global | cell
 EVAL_CELLS_PER_PAGE=4
 EVAL_MAX_CELLS_PLOT=0     # 0 = plot every cell
-EVAL_CONF_UNIT=bp         # confusion_segments_{cn,events}.pdf: bp = base-pair weighted (cell-Mb);
-                          # cells = each cell x segment once (majority call)
+EVAL_SEG_MIN_FRAC=0.75    # threshold for confusion_segments_*_{bp,cells}_min75.pdf: a bin counts toward a segment
+                          # only if >= this fraction of it (its aligned truth) lies inside. The unthresholded
+                          # _bp / _cells versions are always made too.
 
 EVAL_MIN_COVERED=0.5      # min fraction of a bin with aligned truth to score it
 EVAL_Y_LINEAR_MAX=8       # track plots: CN above this goes above an axis break
