@@ -43,7 +43,7 @@ Outputs (in --out-dir)
   confusion_segments_<view>_<variant>.pdf
                             view:   cn      true CN vs called CN (CN 0-4 exact, then groups of 5)
                                     events  gain / normal / loss (3x3; gain = CN > 1, normal = 1, loss = 0)
-                            variant (all four are always made):
+                            variant (all five are always made):
                               bp           every overlapping base counts (cell-Mb)
                               cells        each cell x segment once, called by the CN covering
                                            most of its compared bases
@@ -52,10 +52,14 @@ Outputs (in --out-dir)
                                            follows it) of its aligned truth (per cell and haplotype)
                                            lies in that segment, so large variable-length bins that
                                            straddle a boundary do not carry a neighbour's call into it
+                              bins_min75   each such bin once per cell and haplotype, whatever its size
+                                           (true CN = the segment's, called CN = the bin's); with a
+                                           threshold > 0.5 a bin belongs to at most one segment
                             Each: all cn_mat segments pooled, then one page per segment;
                             maternal and paternal x actual / ideal phasing / allele-specific.
   section_confusion.tsv     the numbers behind them, exact CNs, both units
-                            (bins = all | min75, hap, seg, level, true_cn, pred_cn, cells, bp)
+                            (bins = all | min75, hap, seg, level, true_cn, pred_cn, cells, cell_bins, bp;
+                            cell_bins of bins=all counts a straddling bin in every segment it touches)
   section_coverage.tsv      how much of each segment survived --seg-min-frac
                             (hap, seg, cells_all, cells_kept, bp_all, bp_kept, frac_bp_kept)
   per_cell_tracks.pdf       maternal/paternal predicted vs true (actual orientation);
@@ -365,8 +369,10 @@ def main():
                     ok = ~np.isnan(pv.astype(float))
                     d = pd.DataFrame({"seg": tg.seg.values[i][ok], "true_cn": tg.cn.values[i][ok].astype(int),
                                       "pred_cn": pv[ok].astype(int), "bp": ov[i, j][ok].astype(float),
-                                      "kept": keep[ok]})
-                    d = d.groupby(["seg", "true_cn", "pred_cn", "kept"], as_index=False).bp.sum()
+                                      "kept": keep[ok], "bin": j[ok]})
+                    # cell_bins: distinct bins (a bin split by an alignment gap is still one bin)
+                    d = d.groupby(["seg", "true_cn", "pred_cn", "kept"], as_index=False).agg(
+                        bp=("bp", "sum"), cell_bins=("bin", "nunique"))
                     d.insert(0, "level", lvl); d.insert(0, "hap", h); d.insert(0, "cell", cell)
                     parts.append(d)
         # how much of each segment survived --seg-min-frac (per cell x hap, then pooled over cells)
@@ -387,24 +393,26 @@ def main():
             return f"; {100 * f:.1f}% of segment bases kept"
 
         allparts = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(
-            columns=["cell", "hap", "level", "seg", "true_cn", "pred_cn", "kept", "bp"])
+            columns=["cell", "hap", "level", "seg", "true_cn", "pred_cn", "kept", "bp", "cell_bins"])
         TAG = f"min{100 * a.seg_min_frac:g}"           # e.g. min75
 
         def tabulate(long):
             """cell, hap, level, seg, true_cn, pred_cn, bp -> (conf, maj).
             maj: majority called CN per cell x haplotype x segment x level (ties: lowest CN)."""
-            long = long.groupby(["cell", "hap", "level", "seg", "true_cn", "pred_cn"], as_index=False).bp.sum()
+            long = long.groupby(["cell", "hap", "level", "seg", "true_cn", "pred_cn"], as_index=False)[
+                ["bp", "cell_bins"]].sum()
             maj = (long.sort_values(["bp", "pred_cn"], ascending=[False, True])
                    .drop_duplicates(["cell", "hap", "level", "seg", "true_cn"]))
             key = ["hap", "seg", "level", "true_cn", "pred_cn"]
-            conf = (long.groupby(key).bp.sum().to_frame()
+            conf = (long.groupby(key)[["bp", "cell_bins"]].sum()
                     .join(maj.groupby(key).size().rename("cells"), how="outer").fillna(0).reset_index())
             conf["cells"] = conf.cells.astype(int)
+            conf["cell_bins"] = conf.cell_bins.astype(int)
             return conf, maj
 
         tables = {"all": tabulate(allparts), TAG: tabulate(allparts[allparts.kept.astype(bool)])}
         pd.concat([c.assign(bins=b) for b, (c, _) in tables.items()], ignore_index=True)[
-            ["bins", "hap", "seg", "level", "true_cn", "pred_cn", "cells", "bp"]].to_csv(
+            ["bins", "hap", "seg", "level", "true_cn", "pred_cn", "cells", "cell_bins", "bp"]].to_csv(
             os.path.join(a.out_dir, "section_confusion.tsv"), sep="\t", index=False)
         for old in ("confusion_segments_cn.pdf", "confusion_segments_events.pdf"):   # names before the 4 variants
             if os.path.exists(os.path.join(a.out_dir, old)):
@@ -413,7 +421,7 @@ def main():
         def draw_confusion(conf, maj, unit, thr):
             """Write confusion_segments_{cn,events}_<unit>[_<TAG>].pdf for one unit and bin set."""
             suffix = unit + (f"_{TAG}" if thr else "")
-            val = unit
+            val = {"bp": "bp", "cells": "cells", "bins": "cell_bins"}[unit]
             note = kept_note if thr else (lambda sc: "")
             # Two views of the same comparison:
             #   cn     true CN vs called CN (0-4 exact, then groups of 5)
@@ -430,7 +438,7 @@ def main():
                 return g if isinstance(g, str) else (f"{g}" if g < 5 else f"{g}-{g + 4}")
 
             def fmt(v):
-                return f"{int(v):,}" if unit == "cells" else f"{v / 1e6:,.1f}"
+                return f"{v / 1e6:,.1f}" if unit == "bp" else f"{int(v):,}"
 
             def draw(ax, df, cats, title, kind):
                 idx = {c: k for k, c in enumerate(cats)}
@@ -465,9 +473,11 @@ def main():
                     score = np.trace(m) / m.sum() if m.sum() else np.nan
                     ax.set_title(f"{title}\nagreement {score:.3f}   (n = {fmt(tw)})", fontsize=8.5)
 
-            how = ("each box: % of the true row, then cells (each cell x segment once, called by the CN "
-                   "covering most of its compared bases)" if unit == "cells" else
-                   "each box: % of the true row, then cell-Mb (Mb summed over cells; e.g. 10 cells x 2 Mb = 20)")
+            how = {"cells": "each box: % of the true row, then cells (each cell x segment once, called by the CN "
+                            "covering most of its compared bases)",
+                   "bins":  "each box: % of the true row, then cell-bins (each qualifying bin once per cell, "
+                            "whatever its size; true CN = the segment's)",
+                   "bp":    "each box: % of the true row, then cell-Mb (Mb summed over cells; e.g. 10 cells x 2 Mb = 20)"}[unit]
             how = ("bins: " + (f"only bins >= {100 * a.seg_min_frac:g}% inside the segment (their bases inside it)"
                                if thr else "all bins overlapping the segment") + "\n" + how)
 
@@ -526,7 +536,8 @@ def main():
                         page(pdf, conf[conf.seg == sg], f"Segment {sg}  ({rng}; {g.cell.nunique()} cells{note(sc)})", kind)
         for thr in (False, True):
             conf, maj = tables[TAG if thr else "all"]
-            for unit in ("bp", "cells"):
+            # per bin only with the threshold: unthresholded, a straddling bin would count in two segments
+            for unit in ("bp", "cells") + (("bins",) if thr else ()):
                 draw_confusion(conf, maj, unit, thr)
     else:
         print("[eval] truth file has no 'seg' column (made by an older lift_truth.py); skipping confusion_segments_*.pdf",

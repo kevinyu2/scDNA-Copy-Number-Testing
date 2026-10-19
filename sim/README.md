@@ -66,9 +66,9 @@ Bin size comes from `CHISEL_BINSIZE` / `HS_BINSIZE` in `config.sh`, or `--binsiz
 when you submit, so editing `config.sh` afterwards doesn't affect queued jobs.
 
 Eval outputs: `summary.txt` (accuracy + gain/normal/loss TP/TN/FP/FN), `confusion_segments_{cn,events}_<variant>.pdf`
-(true vs called CN, and gain/normal/loss) in four variants:
-`_bp`, `_cells` (one majority call per cell x segment), and `_bp_min75` / `_cells_min75` (only bins at least
-75% inside the segment; `EVAL_SEG_MIN_FRAC`) (+ `section_confusion.tsv`, `section_coverage.tsv`), `per_cell_tracks{,_bin,_ideal}.pdf`, and `calls.tsv` (the
+(true vs called CN, and gain/normal/loss) in five variants:
+`_bp`, `_cells` (one majority call per cell x segment), and `_bp_min75` / `_cells_min75` / `_bins_min75` (only bins at
+least 75% inside the segment, `EVAL_SEG_MIN_FRAC`; `_bins` counts each such bin once per cell) (+ `section_confusion.tsv`, `section_coverage.tsv`), `per_cell_tracks{,_bin,_ideal}.pdf`, and `calls.tsv` (the
 converted calls that were scored). For HiScanner only the allele-specific level is
 shown (`per_cell_tracks_ideal.pdf`).
 
