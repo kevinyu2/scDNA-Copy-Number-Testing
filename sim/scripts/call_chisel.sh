@@ -135,7 +135,7 @@ fi
 VB_ARGS=()
 if [[ ${CHISEL_PHASER_BINS} == true ]]; then
     PBINS=$(phaser_bins_file "${PHASER}" "${CHISEL_PHASER_PER_CELL}")
-    [[ -s ${PBINS} ]] || die "missing ${PBINS}: for ugp run UGP with UGP_MODE=pseudobulk and ${CHISEL_PHASER_PER_CELL} in PHASER_BINS_PER_CELL; for perfect run scripts/bins_perfect.sh"
+    [[ -s ${PBINS} ]] || die "missing ${PBINS}: make them with ./run_pipeline.sh --phaser ${PHASER} --phaserbins ${CHISEL_PHASER_PER_CELL} (ugp: --to phase, UGP_MODE=pseudobulk; perfect: the call stage runs bins_perfect.sh)"
     VB_ARGS=(--bins "${PBINS}")
     note "${PHASER} bins: ${PBINS} ($( (zcat -f "${PBINS}") | grep -vc '^#') bins)"
 elif [[ ${CHISEL_VARBINS} == true ]]; then

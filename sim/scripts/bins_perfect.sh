@@ -11,11 +11,12 @@
 #
 # 1. Pooled SNP-covering reads per true het SNP: REF+ALT depths of every cell (not the bulk),
 #    summed from phase_perfect's ${PERFECT_AD_VCF}       -> ${PERFECT_DIR}/bb/pooled_snp_depth.tsv.gz
-# 2. For every N in PERFECT_BINS_MSR: the CHISEL fork's chisel_bins in pooled mode, i.e. UGP's
+# 2. For N = --phaserbins (CHISEL_PHASER_PER_CELL) x PHASER_BINS_NCELLS pooled SNP reads: the
+#    CHISEL fork's chisel_bins in pooled mode, i.e. UGP's
 #    window merge (1 kb windows within chromosome arms minus PERFECT_BINS_BLACKLIST) until the
 #    pooled SNP reads >= N, het SNPs >= UGP_MIN_SNP_PER_BIN and read starts >= UGP_MIN_TOTAL_READS
 #    in both chisel_prep's pooled BAM and the bulk. Window counts are cached, so only the first
-#    threshold reads the BAMs.                           -> ${PERFECT_DIR}/bb/MSR<N>/bins.tsv
+#    threshold ever reads the BAMs.                      -> ${PERFECT_DIR}/bb/MSR<N>/bins.tsv
 #    (+ bins.summary.tsv: #bins, mean and median size; bins.pdf, windows.tsv.gz, log_binning).
 #    Existing outputs are kept.
 # Differences to UGP's bins: the true het SNPs instead of UGP's, no gene-aware boundaries.
@@ -58,7 +59,10 @@ if [[ -n ${PERFECT_BINS_BLACKLIST:-} ]]; then
     BL_ARGS=(--blacklist "${PERFECT_BINS_BLACKLIST}")
 fi
 
-for MSR in $(echo "${PERFECT_BINS_MSR}" | tr -d '[],'); do
+[[ ${CHISEL_PHASER_PER_CELL:-} =~ ^[0-9]+$ ]] && (( CHISEL_PHASER_PER_CELL > 0 )) \
+    || die "CHISEL_PHASER_PER_CELL must be a positive whole number (got '${CHISEL_PHASER_PER_CELL:-}')"
+(( PHASER_BINS_NCELLS > 0 )) || die "PHASER_BINS_NCELLS is 0: cannot read TREE_FILE=${TREE_FILE}"
+for MSR in $(( CHISEL_PHASER_PER_CELL * PHASER_BINS_NCELLS )); do
     OUT="${BB_DIR}/MSR${MSR}"
     if [[ -s ${OUT}/bins.tsv ]]; then
         note "MSR${MSR}: ${OUT}/bins.tsv exists, kept"

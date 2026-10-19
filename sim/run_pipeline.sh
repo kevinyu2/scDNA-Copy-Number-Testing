@@ -24,9 +24,10 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
   --varbins N    CHISEL only: variable-length bins with N mean SNP-covering reads per
                  cell per bin (chisel --varbins); output folders are chisel_var<N>/
   --phaserbins N CHISEL only: variable-length bins made by the phaser, N mean SNP reads per
-                 cell per bin (N in PHASER_BINS_PER_CELL): --phaser ugp uses UGP's
-                 (UGP_MODE=pseudobulk), --phaser perfect makes them from the true het SNPs
-                 (scripts/bins_perfect.sh). Folders chisel_pbins<N>/
+                 cell per bin: --phaser ugp has UGP make them (UGP_MODE=pseudobulk; the phase
+                 stage builds threshold N x cells), --phaser perfect makes them from the true
+                 het SNPs (scripts/bins_perfect.sh). Folders chisel_pbins<N>/. With --to phase
+                 (no caller) it only sets which UGP bins to build
   --ugpbins N    same as --phaserbins N
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
@@ -135,22 +136,18 @@ if [[ -n ${VARBINS} ]]; then
     CHISEL_VB_MINSNPREADSPERCELL=${VARBINS}
 fi
 if [[ -n ${UGPBINS} ]]; then
-    [[ ${CALLER} == chisel ]] || die "--phaserbins needs --caller chisel"
+    [[ ${CALLER} == chisel || -z ${CALLER} ]] || die "--phaserbins needs --caller chisel (or --to phase)"
     [[ -z ${VARBINS} ]] || die "use either --varbins or --phaserbins"
-    [[ ${UGPBINS} =~ ^[0-9]+$ ]] || die "--phaserbins needs a whole number of SNP reads per cell, e.g. 40"
+    [[ ${UGPBINS} =~ ^[0-9]+$ ]] && (( UGPBINS > 0 )) || die "--phaserbins needs a whole number of SNP reads per cell, e.g. 40"
     CHISEL_PHASER_BINS=true
     CHISEL_PHASER_PER_CELL=${UGPBINS}
 fi
-if [[ ${CHISEL_PHASER_BINS:-false} == true && ${CALLER} == chisel ]]; then
+if [[ ${CHISEL_PHASER_BINS:-false} == true && ( ${CALLER} == chisel || -z ${CALLER} ) ]]; then
     case ${PHASER} in
         ugp)
             [[ ${UGP_MODE} == pseudobulk || ${UGP_MODE} == percell ]] \
-                || die "UGP writes bins only with UGP_MODE=pseudobulk (config.sh has '${UGP_MODE}')"
-            [[ " $(echo "${PHASER_BINS_PER_CELL}" | tr -d '[],') " == *" ${CHISEL_PHASER_PER_CELL} "* ]] \
-                || die "${CHISEL_PHASER_PER_CELL} per cell is not in PHASER_BINS_PER_CELL=${PHASER_BINS_PER_CELL}, so UGP makes no such bins" ;;
-        perfect)
-            [[ " $(echo "${PHASER_BINS_PER_CELL}" | tr -d '[],') " == *" ${CHISEL_PHASER_PER_CELL} "* ]] \
-                || die "${CHISEL_PHASER_PER_CELL} per cell is not in PHASER_BINS_PER_CELL=${PHASER_BINS_PER_CELL}" ;;
+                || die "UGP writes bins only with UGP_MODE=pseudobulk (config.sh has '${UGP_MODE}')" ;;
+        perfect) ;;
         *)  die "phaser '${PHASER}' makes no bins; --phaserbins works with --phaser ugp or perfect" ;;
     esac
     (( PHASER_BINS_NCELLS > 0 )) || die "cannot count cells: TREE_FILE=${TREE_FILE} is not readable"
@@ -158,6 +155,10 @@ if [[ ${CHISEL_PHASER_BINS:-false} == true && ${CALLER} == chisel ]]; then
     (( NBAMS == 0 || NBAMS == PHASER_BINS_NCELLS )) \
         || note "WARNING: ${NBAMS} cell BAMs in ${CELL_BAM_DIR}, but NUM_BATCHES x tree cells = ${PHASER_BINS_NCELLS}"
     [[ ${CHISEL_VARBINS:-false} != true ]] || die "CHISEL_VARBINS and CHISEL_PHASER_BINS are both true"
+fi
+if runs phase && [[ ${PHASER} == ugp && ( ${UGP_MODE} == pseudobulk || ${UGP_MODE} == percell ) ]]; then
+    (( PHASER_BINS_NCELLS > 0 )) || die "cannot count cells: TREE_FILE=${TREE_FILE} is not readable"
+    note "UGP bins: ${CHISEL_PHASER_PER_CELL} SNP reads per cell -> MSR$(( CHISEL_PHASER_PER_CELL * PHASER_BINS_NCELLS ))$([[ -n ${UGPBINS} ]] || echo " (CHISEL_PHASER_PER_CELL; pass --phaserbins N for another)")"
 fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
@@ -190,7 +191,7 @@ if [[ -z ${AFTER} ]]; then
     if (( FROM_I >= 1 )); then
         need "$(phaser_output "${PHASER}")" "${PHASER} output" "start from the phase stage (--from phase)"
         if [[ ${CALLER} == chisel && ${CHISEL_PHASER_BINS:-false} == true && ${PHASER} == ugp ]]; then
-            need "$(phaser_bins_file ugp "${CHISEL_PHASER_PER_CELL}")" "UGP bins" "rerun UGP with UGP_MODE=pseudobulk (--from phase)"
+            need "$(phaser_bins_file ugp "${CHISEL_PHASER_PER_CELL}")" "UGP bins" "make them: --phaser ugp --to phase --phaserbins ${CHISEL_PHASER_PER_CELL} (UGP_MODE=pseudobulk), or start this run --from phase"
         fi
     fi
     if (( FROM_I >= 2 )); then

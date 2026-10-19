@@ -30,6 +30,13 @@ set -euo pipefail
 
 UGP_DRYRUN=${UGP_DRYRUN:-false}
 
+# The one adaptive-binning threshold UGP builds: run_pipeline.sh --phaserbins N (pinned into the job),
+# else CHISEL_PHASER_PER_CELL from config.sh; pooled over the cells (pseudobulk = one dataset of all
+# cells). MSR folders from earlier runs with other N stay on disk.
+[[ ${CHISEL_PHASER_PER_CELL:-} =~ ^[0-9]+$ ]] && (( CHISEL_PHASER_PER_CELL > 0 )) \
+    || die "CHISEL_PHASER_PER_CELL must be a positive whole number (got '${CHISEL_PHASER_PER_CELL:-}')"
+UGP_MIN_SNP_READS="[$(( CHISEL_PHASER_PER_CELL * PHASER_BINS_NCELLS ))]"
+
 BAM_DIR="${CELL_BAM_DIR}"
 BULK_ID="bulk"
 DATA="${UGP_REPO}/resources/data"
@@ -74,7 +81,7 @@ if [[ ${UGP_MODE} == percell ]]; then
     echo "percell mode: ${#CELL_BAMS[@]} cells"
 elif [[ ${UGP_MODE} == pseudobulk ]]; then
     (( PHASER_BINS_NCELLS > 0 )) || die "pseudobulk mode needs the number of cells: TREE_FILE=${TREE_FILE} is not readable"
-    echo "pseudobulk thresholds: ${PHASER_BINS_PER_CELL} SNP reads per cell x ${PHASER_BINS_NCELLS} cells = ${UGP_MIN_SNP_READS}"
+    echo "pseudobulk threshold: ${CHISEL_PHASER_PER_CELL} SNP reads per cell x ${PHASER_BINS_NCELLS} cells = ${UGP_MIN_SNP_READS}"
     # all cells in one BAM; UGP's scDNA pileup uses --ignore-RG, so it is one sample
     [[ -s ${CHISEL_BARCODED_BAM} && -e ${CHISEL_BARCODED_BAM}.bai ]] \
         || die "pseudobulk mode needs chisel_prep's ${CHISEL_BARCODED_BAM} (+ .bai); run scripts/chisel_prep.sh first"
