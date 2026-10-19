@@ -2,7 +2,7 @@
 #SBATCH --job-name=call_hiscanner
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=48:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=logs/call_hiscanner_%j.out
 #SBATCH --error=logs/call_hiscanner_%j.err
 

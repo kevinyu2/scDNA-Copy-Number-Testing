@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=phase_scan2
 #SBATCH --mem=8G
-#SBATCH --time=72:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/phase_scan2_%j.out
 #SBATCH --error=logs/phase_scan2_%j.err
 

@@ -2,7 +2,7 @@
 #SBATCH --job-name=eval
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=12:00:00
+#SBATCH --time=6:00:00
 #SBATCH --output=logs/eval_%j.out
 #SBATCH --error=logs/eval_%j.err
 
