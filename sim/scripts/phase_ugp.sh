@@ -2,7 +2,7 @@
 #SBATCH --job-name=phase_ugp
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=12:00:00
+#SBATCH --time=6:00:00
 #SBATCH --output=logs/phase_ugp_%j.out
 #SBATCH --error=logs/phase_ugp_%j.err
 
