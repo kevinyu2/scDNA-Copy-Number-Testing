@@ -2,7 +2,7 @@
 #SBATCH --job-name=call_chisel
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=6:00:00
+#SBATCH --time=8:00:00
 #SBATCH --output=logs/call_chisel_%j.out
 #SBATCH --error=logs/call_chisel_%j.err
 
