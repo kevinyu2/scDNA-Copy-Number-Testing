@@ -18,6 +18,9 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_VB_MSR:-} ]] && CHISEL_VB_MINSNPREADSPERCELL=${PIN_CHISEL_VB_MSR}
 [[ -n ${PIN_CHISEL_PHASER_BINS:-} ]] && CHISEL_PHASER_BINS=${PIN_CHISEL_PHASER_BINS}
 [[ -n ${PIN_CHISEL_PHASER_PER_CELL:-} ]] && CHISEL_PHASER_PER_CELL=${PIN_CHISEL_PHASER_PER_CELL}
+if [[ -n ${PIN_CHISEL_HMM:-} ]]; then                    # "none" = pinned as a run without the HMM
+    [[ ${PIN_CHISEL_HMM} == none ]] && CHISEL_HMM="" || CHISEL_HMM=${PIN_CHISEL_HMM}
+fi
 
 # "5Mb" / "500kb" / "5000000" -> bp. Same rules as CHISEL's -b: whole numbers,
 # optional suffix kb or Mb (case-sensitive).
@@ -34,15 +37,17 @@ to_bp() {
 caller_binsize() {                                   # caller -> bin size in bp
     case $1 in
         hiscanner) to_bp "${HS_BINSIZE}" ;;
-        chisel)    if [[ ${CHISEL_PHASER_BINS:-false} == true ]]; then
-                       echo "pbins${CHISEL_PHASER_PER_CELL}"                # names chisel_pbins<N per cell>/<phaser>/ folders
+        chisel)    local b
+                   if [[ ${CHISEL_PHASER_BINS:-false} == true ]]; then
+                       b="pbins${CHISEL_PHASER_PER_CELL}"                # names chisel_pbins<N per cell>/<phaser>/ folders
                    elif [[ ${CHISEL_VARBINS:-false} == true ]]; then
-                       echo "var${CHISEL_VB_MINSNPREADSPERCELL}"   # names chisel_var<N>/ folders
+                       b="var${CHISEL_VB_MINSNPREADSPERCELL}"   # names chisel_var<N>/ folders
                    elif [[ ${CHISEL_USE_NEW:-false} == true ]]; then
-                       echo "new$(to_bp "${CHISEL_BINSIZE}")"        # fixed bins with the fork: chisel_new<bp>/
+                       b="new$(to_bp "${CHISEL_BINSIZE}")"        # fixed bins with the fork: chisel_new<bp>/
                    else
-                       to_bp "${CHISEL_BINSIZE}"
-                   fi ;;
+                       b=$(to_bp "${CHISEL_BINSIZE}")
+                   fi
+                   echo "${b}${CHISEL_HMM:+_hmm${CHISEL_HMM}}" ;;   # HMM runs: chisel_<bins>_hmm<K>/
         *)         die "unknown caller '$1'" ;;
     esac
 }
@@ -81,7 +86,9 @@ SCAN2_DIR="${PROJECT_DIR}/scan2_out"
 UGP_PHASED_VCF="${UGP_DIR}/out/phase/phased_het_snps.vcf.gz"
 ugp_bb_file() { echo "${UGP_DIR}/out/bb/MSR$1/bulk/bb.tsv.gz"; }   # bins of UGP pseudobulk/percell mode, per min_snp_reads
 chisel_env() {   # conda env of the CHISEL run: the fork for its new features, else the original
-    if [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true || ${CHISEL_USE_NEW:-false} == true ]]; then
+    if [[ -n ${CHISEL_HMM:-} ]]; then
+        echo "${HMM_CHISEL_ENV:?HMM_CHISEL_ENV is not set in config.sh}"
+    elif [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true || ${CHISEL_USE_NEW:-false} == true ]]; then
         echo "${NEW_CHISEL_ENV:?NEW_CHISEL_ENV is not set in config.sh}"
     else
         echo "${CHISEL_ENV}"
@@ -164,6 +171,7 @@ make_lift_pafs() {
 # ============================================================
 
 call_dir() { echo "${PROJECT_DIR}/$1_$(caller_binsize "$1")/$2"; }     # caller phaser
+chisel_base_dir() { ( CHISEL_HMM=""; call_dir chisel "$1" ); }        # phaser -> the same CHISEL run without the HMM (its combo.tsv feeds HMM runs)
 
 # CHISEL's barcoded BAM depends on neither the phaser nor the bin size, so it is shared
 CHISEL_PREP_DIR="${PROJECT_DIR}/chisel/prep"

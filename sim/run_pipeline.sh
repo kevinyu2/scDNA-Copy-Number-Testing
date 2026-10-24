@@ -29,6 +29,10 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
                  het SNPs (scripts/bins_perfect.sh). Folders chisel_pbins<N>/. With --to phase
                  (no caller) it only sets which UGP bins to build
   --ugpbins N    same as --phaserbins N
+  --hmm K        CHISEL only: re-do the calling with HMM bin clustering (chisel_hmm's hmm branch,
+                 HMM_CHISEL_ENV) on the combo.tsv of the same run without --hmm, with exactly K
+                 clusters, or MIN-MAX to let CHISEL_HMM_SELECT choose; needs --from call.
+                 Folders chisel_<bins>_hmm<K>/ (e.g. --phaserbins 8 --hmm 7: chisel_pbins8_hmm7/)
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
   --dry-run      print the sbatch commands without submitting
@@ -88,6 +92,7 @@ while (( $# )); do
         --binsize) BINSIZE=${2:?--binsize needs a value}; shift 2 ;;
         --varbins) VARBINS=${2:?--varbins needs a value}; shift 2 ;;
         --ugpbins|--phaserbins) UGPBINS=${2:?$1 needs a value}; shift 2 ;;
+        --hmm)     HMMK=${2:?--hmm needs a value}; shift 2 ;;
         --dry-run) DRY=true; shift ;;
         --list)    list_routes; exit 0 ;;
         -h|--help) usage; exit 0 ;;
@@ -151,7 +156,7 @@ if [[ ${CHISEL_PHASER_BINS:-false} == true && ( ${CALLER} == chisel || -z ${CALL
         *)  die "phaser '${PHASER}' makes no bins; --phaserbins works with --phaser ugp or perfect" ;;
     esac
     (( PHASER_BINS_NCELLS > 0 )) || die "cannot count cells: TREE_FILE=${TREE_FILE} is not readable"
-    NBAMS=$(compgen -G "${CELL_BAM_DIR}/*.bam" | wc -l)
+    NBAMS=$(compgen -G "${CELL_BAM_DIR}/*.bam" | wc -l || true)   # compgen fails when nothing matches (pipefail)
     (( NBAMS == 0 || NBAMS == PHASER_BINS_NCELLS )) \
         || note "WARNING: ${NBAMS} cell BAMs in ${CELL_BAM_DIR}, but NUM_BATCHES x tree cells = ${PHASER_BINS_NCELLS}"
     [[ ${CHISEL_VARBINS:-false} != true ]] || die "CHISEL_VARBINS and CHISEL_PHASER_BINS are both true"
@@ -160,11 +165,24 @@ if runs phase && [[ ${PHASER} == ugp && ( ${UGP_MODE} == pseudobulk || ${UGP_MOD
     (( PHASER_BINS_NCELLS > 0 )) || die "cannot count cells: TREE_FILE=${TREE_FILE} is not readable"
     note "UGP bins: ${CHISEL_PHASER_PER_CELL} SNP reads per cell -> MSR$(( CHISEL_PHASER_PER_CELL * PHASER_BINS_NCELLS ))$([[ -n ${UGPBINS} ]] || echo " (CHISEL_PHASER_PER_CELL; pass --phaserbins N for another)")"
 fi
+if [[ -n ${HMMK:-} ]]; then
+    [[ ${CALLER} == chisel ]] || die "--hmm needs --caller chisel"
+    [[ ${HMMK} =~ ^[0-9]+(-[0-9]+)?$ ]] || die "--hmm needs a number of clusters K or a range MIN-MAX, e.g. 7 or 5-10"
+    if [[ ${HMMK} == *-* ]]; then
+        (( ${HMMK%-*} >= 1 && ${HMMK%-*} <= ${HMMK#*-} )) || die "--hmm ${HMMK}: need 1 <= MIN <= MAX"
+    else
+        (( HMMK >= 1 )) || die "--hmm needs at least 1 cluster"
+    fi
+    (( FROM_I >= 1 )) || die "--hmm re-does only the calling: start at the call stage (--from call); the run without --hmm makes combo.tsv"
+    CHISEL_HMM=${HMMK}
+    note "HMM: ${HMMK} clusters, on the combo.tsv of $(chisel_base_dir "${PHASER}")"
+fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none}"
 if [[ -n ${CALLER} ]]; then
     CALLER_BP=$(caller_binsize "${CALLER}")
+    CALLER_BP=${CALLER_BP%%_hmm*}            # the bins, without an HMM run's suffix
     case ${CALLER_BP} in
         var*)    note "${CALLER} bins: variable (${CALLER_BP#var} SNP reads per cell)" ;;
         pbins*)  note "${CALLER} bins: ${PHASER}'s, ${CALLER_BP#pbins} SNP reads per cell ($(phaser_bins_file "${PHASER}" "${CALLER_BP#pbins}"))" ;;
@@ -183,12 +201,15 @@ need() {   # path description fix
 }
 
 if [[ -z ${AFTER} ]]; then
-    if runs phase || { runs call && [[ ${CALLER} == chisel ]]; }; then
+    if [[ -n ${CHISEL_HMM:-} ]] && runs call; then
+        need "$(chisel_base_dir "${PHASER}")/combo/combo.tsv" "combo.tsv of the run without --hmm" \
+            "run it first: the same command without --hmm (--from call)"
+    elif runs phase || { runs call && [[ ${CALLER} == chisel ]]; }; then
         ls "${CELL_BAM_DIR}"/*.bam >/dev/null 2>&1 \
             || die "no cell BAMs in ${CELL_BAM_DIR}; run ./run_sim.sh first"
         need "${BULK_BAM}" "bulk BAM" "run ./run_sim.sh first"
     fi
-    if (( FROM_I >= 1 )); then
+    if (( FROM_I >= 1 )) && [[ -z ${CHISEL_HMM:-} ]]; then
         need "$(phaser_output "${PHASER}")" "${PHASER} output" "start from the phase stage (--from phase)"
         if [[ ${CALLER} == chisel && ${CHISEL_PHASER_BINS:-false} == true && ${PHASER} == ugp ]]; then
             need "$(phaser_bins_file ugp "${CHISEL_PHASER_PER_CELL}")" "UGP bins" "make them: --phaser ugp --to phase --phaserbins ${CHISEL_PHASER_PER_CELL} (UGP_MODE=pseudobulk), or start this run --from phase"
@@ -245,6 +266,11 @@ if runs call; then
             SUMMARY+=("call (hiscanner): ${J}")
             ;;
         chisel)
+          if [[ -n ${CHISEL_HMM:-} ]]; then
+            # HMM: only the calling, on the combo.tsv of the run without --hmm
+            J=$(submit call_chisel_hmm "${PREV}" scripts/call_chisel_hmm.sh)
+            SUMMARY+=("call (chisel HMM ${CHISEL_HMM}): ${J}")
+          else
             # The barcoded BAM needs only the cell BAMs, so it runs alongside phasing
             P=${PREP:-$(submit chisel_prep "${AFTER}" scripts/chisel_prep.sh)}
             SUMMARY+=("call (chisel_prep): ${P}")
@@ -257,6 +283,7 @@ if runs call; then
             fi
             J=$(submit call_chisel "${DEPS}" scripts/call_chisel.sh)
             SUMMARY+=("call (chisel): ${J}")
+          fi
             ;;
     esac
     PREV=${J}

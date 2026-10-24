@@ -173,6 +173,14 @@ NEW_CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/new_chisel"   #
 # (chisel_prep, fixed bins) uses CHISEL_ENV. CHISEL_USE_NEW=true also runs fixed bins with the fork,
 # into chisel_new<bp>/ folders so the original CHISEL's chisel_<bp>/ results are kept.
 CHISEL_USE_NEW=false
+# HMM bin clustering (the chisel_hmm fork's hmm branch, HATCHet2-style; run_pipeline.sh --hmm K or
+# --hmm MIN-MAX). An HMM run only re-does the calling (Caller with the HMM, Cloner, Plotter) on the
+# combo.tsv of the same run without --hmm, which must exist; folders chisel_<bins>_hmm<K>/<phaser>/.
+HMM_CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/chisel_hmmenv"
+CHISEL_HMM=""                 # set per run with --hmm (K, or MIN-MAX to let the criterion choose)
+CHISEL_HMM_SELECT="bic"       # bic | silhouette (only matters with a MIN-MAX range)
+CHISEL_HMM_RESTARTS=10        # restarts per K
+CHISEL_HMM_EXTRA=""           # any other chisel_calling --hmm* options, e.g. "--hmmtransmat fixed --hmmdecode viterbi"
 CHISEL_SEED=12
 CHISEL_JOBS=16
 CHISEL_BARCODE_LENGTH=12
