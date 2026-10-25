@@ -30,6 +30,8 @@ SCRIPTS="$(pwd)/scripts"      # jobs run from sim/ (under SLURM $0 is a spool co
 source ${CONDA}
 
 set -euo pipefail
+# conda's activate/deactivate scripts read unset variables (e.g. binutils' ADDR2LINE): not under set -u
+conda_switch() { set +u; conda "$@"; local rc=$?; set -u; return ${rc}; }
 
 BASE=$(chisel_base_dir "${PHASER}")
 RUN_DIR=$(call_dir chisel "${PHASER}")
@@ -38,13 +40,13 @@ COMBO="${BASE}/combo/combo.tsv"
 mkdir -p "${RUN_DIR}"
 if [[ ${ORACLE} == true ]]; then
     [[ -s ${EVAL_TRUTH} ]] || die "missing ${EVAL_TRUTH}: run any eval of this project first"
-    conda activate "${EVAL_ENV}"
+    conda_switch activate "${EVAL_ENV}"
     note "Oracle bin clusters from ${EVAL_TRUTH} on the bins of ${BASE}"
     python3 -B "${SCRIPTS}/oracle_clusters.py" --truth "${EVAL_TRUTH}" --run "${BASE}" --out "${RUN_DIR}/oracle" \
         || die "oracle_clusters.py failed"
-    conda deactivate
+    conda_switch deactivate
 fi
-conda activate "${HMM_CHISEL_ENV:?HMM_CHISEL_ENV is not set in config.sh}"
+conda_switch activate "${HMM_CHISEL_ENV:?HMM_CHISEL_ENV is not set in config.sh}"
 for tool in chisel_calling python2.7; do
     command -v "$tool" >/dev/null || die "'$tool' not found in env ${HMM_CHISEL_ENV}"
 done
