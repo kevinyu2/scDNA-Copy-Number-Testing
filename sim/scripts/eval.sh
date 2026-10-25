@@ -48,12 +48,13 @@ case ${CALLER} in
                elif [[ ${CHISEL_VARBINS:-false} == true ]]; then
                    LABEL="CHISEL (${PHASER}, variable bins, ${CHISEL_VB_MINSNPREADSPERCELL} SNP reads/cell, ${CHISEL_EVAL_CN})"
                else
-                   LABEL="CHISEL (${PHASER}, $(CHISEL_HMM=""; caller_binsize chisel) bp bins, ${CHISEL_EVAL_CN})"
+                   LABEL="CHISEL (${PHASER}, $(CHISEL_HMM=""; CHISEL_ORACLE=false; caller_binsize chisel) bp bins, ${CHISEL_EVAL_CN})"
                fi ;;
     *)         LABEL="${CALLER} (${PHASER})" ;;
 esac
 case ${CALLER} in
-    chisel) [[ -n ${CHISEL_HMM:-} ]] && LABEL="${LABEL%)}, HMM K=${CHISEL_HMM})" ;;
+    chisel) [[ -n ${CHISEL_HMM:-} ]] && LABEL="${LABEL%)}, HMM K=${CHISEL_HMM})"
+            [[ ${CHISEL_ORACLE:-false} == true ]] && LABEL="${LABEL%)}, oracle bin clusters)" ;;
 esac
 
 for tool in minimap2 samtools python3; do

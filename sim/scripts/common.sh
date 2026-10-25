@@ -18,6 +18,7 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_VB_MSR:-} ]] && CHISEL_VB_MINSNPREADSPERCELL=${PIN_CHISEL_VB_MSR}
 [[ -n ${PIN_CHISEL_PHASER_BINS:-} ]] && CHISEL_PHASER_BINS=${PIN_CHISEL_PHASER_BINS}
 [[ -n ${PIN_CHISEL_PHASER_PER_CELL:-} ]] && CHISEL_PHASER_PER_CELL=${PIN_CHISEL_PHASER_PER_CELL}
+[[ -n ${PIN_CHISEL_ORACLE:-} ]] && CHISEL_ORACLE=${PIN_CHISEL_ORACLE}
 if [[ -n ${PIN_CHISEL_HMM:-} ]]; then                    # "none" = pinned as a run without the HMM
     [[ ${PIN_CHISEL_HMM} == none ]] && CHISEL_HMM="" || CHISEL_HMM=${PIN_CHISEL_HMM}
 fi
@@ -47,6 +48,7 @@ caller_binsize() {                                   # caller -> bin size in bp
                    else
                        b=$(to_bp "${CHISEL_BINSIZE}")
                    fi
+                   [[ ${CHISEL_ORACLE:-false} == true ]] && b+="_oracle"     # oracle runs: chisel_<bins>_oracle/
                    echo "${b}${CHISEL_HMM:+_hmm${CHISEL_HMM}}" ;;   # HMM runs: chisel_<bins>_hmm<K>/
         *)         die "unknown caller '$1'" ;;
     esac
@@ -86,7 +88,7 @@ SCAN2_DIR="${PROJECT_DIR}/scan2_out"
 UGP_PHASED_VCF="${UGP_DIR}/out/phase/phased_het_snps.vcf.gz"
 ugp_bb_file() { echo "${UGP_DIR}/out/bb/MSR$1/bulk/bb.tsv.gz"; }   # bins of UGP pseudobulk/percell mode, per min_snp_reads
 chisel_env() {   # conda env of the CHISEL run: the fork for its new features, else the original
-    if [[ -n ${CHISEL_HMM:-} ]]; then
+    if [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; then
         echo "${HMM_CHISEL_ENV:?HMM_CHISEL_ENV is not set in config.sh}"
     elif [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true || ${CHISEL_USE_NEW:-false} == true ]]; then
         echo "${NEW_CHISEL_ENV:?NEW_CHISEL_ENV is not set in config.sh}"
@@ -171,7 +173,8 @@ make_lift_pafs() {
 # ============================================================
 
 call_dir() { echo "${PROJECT_DIR}/$1_$(caller_binsize "$1")/$2"; }     # caller phaser
-chisel_base_dir() { ( CHISEL_HMM=""; call_dir chisel "$1" ); }        # phaser -> the same CHISEL run without the HMM (its combo.tsv feeds HMM runs)
+chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_ORACLE=false; call_dir chisel "$1" ); }   # phaser -> the same CHISEL run without --hmm/--oracle (its combo.tsv feeds them)
+chisel_recall() { [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; }        # an HMM or oracle run: only the calling, on the base run's combo.tsv
 
 # CHISEL's barcoded BAM depends on neither the phaser nor the bin size, so it is shared
 CHISEL_PREP_DIR="${PROJECT_DIR}/chisel/prep"

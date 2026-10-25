@@ -33,6 +33,10 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
                  HMM_CHISEL_ENV) on the combo.tsv of the same run without --hmm, with exactly K
                  clusters, or MIN-MAX to let CHISEL_HMM_SELECT choose; needs --from call.
                  Folders chisel_<bins>_hmm<K>/ (e.g. --phaserbins 8 --hmm 7: chisel_pbins8_hmm7/)
+  --oracle       CHISEL only, for diagnosis: re-do the calling of the run without --oracle with the
+                 oracle bin clusters (same copy numbers in the same cells = one cluster, from
+                 eval/truth_hg38.tsv; scripts/oracle_clusters.py) instead of computed ones; needs
+                 --from call. Folders chisel_<bins>_oracle/
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
   --dry-run      print the sbatch commands without submitting
@@ -93,6 +97,7 @@ while (( $# )); do
         --varbins) VARBINS=${2:?--varbins needs a value}; shift 2 ;;
         --ugpbins|--phaserbins) UGPBINS=${2:?$1 needs a value}; shift 2 ;;
         --hmm)     HMMK=${2:?--hmm needs a value}; shift 2 ;;
+        --oracle)  ORACLE=true; shift ;;
         --dry-run) DRY=true; shift ;;
         --list)    list_routes; exit 0 ;;
         -h|--help) usage; exit 0 ;;
@@ -177,12 +182,20 @@ if [[ -n ${HMMK:-} ]]; then
     CHISEL_HMM=${HMMK}
     note "HMM: ${HMMK} clusters, on the combo.tsv of $(chisel_base_dir "${PHASER}")"
 fi
+if [[ ${ORACLE:-false} == true ]]; then
+    [[ ${CALLER} == chisel ]] || die "--oracle needs --caller chisel"
+    [[ -z ${HMMK:-} ]] || die "use either --hmm or --oracle"
+    (( FROM_I >= 1 )) || die "--oracle re-does only the calling: start at the call stage (--from call)"
+    CHISEL_ORACLE=true
+    note "Oracle bin clusters (from ${EVAL_TRUTH}), on the combo.tsv of $(chisel_base_dir "${PHASER}")"
+fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false}"
 if [[ -n ${CALLER} ]]; then
     CALLER_BP=$(caller_binsize "${CALLER}")
     CALLER_BP=${CALLER_BP%%_hmm*}            # the bins, without an HMM run's suffix
+    CALLER_BP=${CALLER_BP%%_oracle}
     case ${CALLER_BP} in
         var*)    note "${CALLER} bins: variable (${CALLER_BP#var} SNP reads per cell)" ;;
         pbins*)  note "${CALLER} bins: ${PHASER}'s, ${CALLER_BP#pbins} SNP reads per cell ($(phaser_bins_file "${PHASER}" "${CALLER_BP#pbins}"))" ;;
@@ -201,15 +214,17 @@ need() {   # path description fix
 }
 
 if [[ -z ${AFTER} ]]; then
-    if [[ -n ${CHISEL_HMM:-} ]] && runs call; then
-        need "$(chisel_base_dir "${PHASER}")/combo/combo.tsv" "combo.tsv of the run without --hmm" \
-            "run it first: the same command without --hmm (--from call)"
+    if chisel_recall && runs call; then
+        need "$(chisel_base_dir "${PHASER}")/combo/combo.tsv" "combo.tsv of the run without --hmm/--oracle" \
+            "run it first: the same command without --hmm/--oracle (--from call)"
+        [[ ${CHISEL_ORACLE:-false} != true ]] || need "${EVAL_TRUTH}" "lifted truth" \
+            "run any eval of this project first (it writes ${EVAL_TRUTH})"
     elif runs phase || { runs call && [[ ${CALLER} == chisel ]]; }; then
         ls "${CELL_BAM_DIR}"/*.bam >/dev/null 2>&1 \
             || die "no cell BAMs in ${CELL_BAM_DIR}; run ./run_sim.sh first"
         need "${BULK_BAM}" "bulk BAM" "run ./run_sim.sh first"
     fi
-    if (( FROM_I >= 1 )) && [[ -z ${CHISEL_HMM:-} ]]; then
+    if (( FROM_I >= 1 )) && ! chisel_recall; then
         need "$(phaser_output "${PHASER}")" "${PHASER} output" "start from the phase stage (--from phase)"
         if [[ ${CALLER} == chisel && ${CHISEL_PHASER_BINS:-false} == true && ${PHASER} == ugp ]]; then
             need "$(phaser_bins_file ugp "${CHISEL_PHASER_PER_CELL}")" "UGP bins" "make them: --phaser ugp --to phase --phaserbins ${CHISEL_PHASER_PER_CELL} (UGP_MODE=pseudobulk), or start this run --from phase"
@@ -266,10 +281,10 @@ if runs call; then
             SUMMARY+=("call (hiscanner): ${J}")
             ;;
         chisel)
-          if [[ -n ${CHISEL_HMM:-} ]]; then
-            # HMM: only the calling, on the combo.tsv of the run without --hmm
+          if chisel_recall; then
+            # HMM or oracle clusters: only the calling, on the combo.tsv of the run without them
             J=$(submit call_chisel_hmm "${PREV}" scripts/call_chisel_hmm.sh)
-            SUMMARY+=("call (chisel HMM ${CHISEL_HMM}): ${J}")
+            SUMMARY+=("call (chisel $([[ ${CHISEL_ORACLE:-false} == true ]] && echo "oracle clusters" || echo "HMM ${CHISEL_HMM}")): ${J}")
           else
             # The barcoded BAM needs only the cell BAMs, so it runs alongside phasing
             P=${PREP:-$(submit chisel_prep "${AFTER}" scripts/chisel_prep.sh)}
