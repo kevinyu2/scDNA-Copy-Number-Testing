@@ -19,6 +19,13 @@ A proof of concept for replacing CHISEL's Cloner (Hamming distance on called sta
 5. --method kmeans (default; k-means++ starts, best of 20) or hierarchical (ward, average, complete,
    weighted) on Euclidean distances, cut into --k clusters. Average/weighted linkage on noisy cells
    tends to split off single outlier cells first; k-means and ward split large groups first;
+   --k MIN-MAX (e.g. 2-10): every K in the range is clustered and scored by the mean silhouette of
+   the cells in the clustering space (the PCs, or the mixed features without PCA; Euclidean); the K
+   with the highest silhouette among those whose clusters all have at least --min-size cells is kept
+   (default 14, as CHISEL's Cloner's clone size): without that, the silhouette tends to grow with K by
+   isolating noisy cells (a cell alone in its cluster scores 0, more than it would inside a group).
+   The table also shows each K's ARI against the true groups, to judge the choice (--plot-k draws
+   both against K);
 6. compared with the true clonal structure: cells with identical copy numbers (both haplotypes, every
    tree segment) in TRUTH (eval/truth_hg38.tsv) form a group. Prints groups x clusters, the adjusted
    Rand index, and the same for CHISEL's clones with --clones RUN/clones/mapping.tsv.
@@ -33,7 +40,7 @@ import sys
 import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import fcluster, linkage
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, squareform
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from select_bins import select   # noqa: E402  same rule as test/select_bins.py
@@ -59,6 +66,27 @@ def ari(a, b):
     exp = sa * sb / n if n else 0.0
     mx = (sa + sb) / 2.0
     return 1.0 if mx == exp else (sij - exp) / (mx - exp)
+
+
+def silhouette(Dm, labels):
+    """Mean silhouette for a precomputed distance matrix (cells alone in their cluster score 0)."""
+    labels = np.asarray(labels)
+    uniq, lab = np.unique(labels, return_inverse=True)
+    n, k = len(lab), len(uniq)
+    if not 2 <= k <= n - 1:
+        return float("nan")
+    onehot = np.zeros((n, k))
+    onehot[np.arange(n), lab] = 1.0
+    sizes = onehot.sum(0)
+    sums = Dm.dot(onehot)
+    own = sizes[lab]
+    a_ = sums[np.arange(n), lab] / np.maximum(own - 1, 1)
+    other = sums / sizes[None, :]
+    other[np.arange(n), lab] = np.inf
+    b_ = other.min(1)
+    s = (b_ - a_) / np.maximum(np.maximum(a_, b_), 1e-300)
+    s[own == 1] = 0.0
+    return float(s.mean())
 
 
 def kmeans(X, K, rng, n_init=20, iters=300):
@@ -119,7 +147,9 @@ def main():
     ap.add_argument("--combo", help="instead of --run: a combo.tsv")
     ap.add_argument("--barcodes", required=True, help="<project>/chisel/prep/barcodedcells.info.tsv")
     ap.add_argument("--truth", required=True, help="eval/truth_hg38.tsv")
-    ap.add_argument("--k", type=int, required=True, help="number of cell clusters")
+    ap.add_argument("--k", required=True, help="number of cell clusters, or MIN-MAX to choose by silhouette (e.g. 2-10)")
+    ap.add_argument("--plot-k", help="with --k MIN-MAX: silhouette and ARI against K to this PDF/PNG")
+    ap.add_argument("--min-size", type=int, default=14, help="with --k MIN-MAX: only Ks whose clusters all have at least this many cells (default 14; 1 = no limit)")
     ap.add_argument("--rdr-pct", type=float, default=70, help="bin selection: RDR dispersion percentile (100 = off; default 70)")
     ap.add_argument("--baf-pct", type=float, default=70, help="bin selection: BAF dispersion percentile (100 = off; default 70)")
     ap.add_argument("--combine", choices=["or", "and"], default="or")
@@ -137,6 +167,14 @@ def main():
     a = ap.parse_args()
     if not (a.run or a.combo):
         ap.error("give --run or --combo")
+    try:
+        kmin, kmax = (int(x) for x in a.k.split("-")) if "-" in a.k else (int(a.k), int(a.k))
+    except ValueError:
+        ap.error("--k needs a number or MIN-MAX, e.g. 3 or 2-10")
+    if not 1 <= kmin <= kmax:
+        ap.error("--k needs 1 <= MIN <= MAX")
+    if kmin < kmax and kmin < 2:
+        ap.error("choosing K by silhouette needs MIN >= 2 (the silhouette is undefined for one cluster)")
     if not 0 <= a.rdr_weight <= 1:
         ap.error("--rdr-weight must be in [0, 1]")
 
@@ -184,20 +222,63 @@ def main():
         X = pcs = U[:, :npc] * S[:npc]
         print(f"PCA: top {npc} components explain {100 * explained[:npc].sum():.1f}% of the variance "
               f"(PC1-5: {', '.join(f'{100 * e:.1f}%' for e in explained[:5])})")
-    if a.method == "kmeans":
-        lab = kmeans(X, a.k, np.random.RandomState(a.seed))
-    else:
-        lab = fcluster(linkage(pdist(X), method=a.method), t=a.k, criterion="maxclust") - 1
-    clus = pd.Series(lab + 1, index=rdr.index, name="cluster")
+    def cluster(k):
+        if a.method == "kmeans":
+            return kmeans(X, k, np.random.RandomState(a.seed))
+        return fcluster(Z, t=k, criterion="maxclust") - 1
+    Z = None if a.method == "kmeans" else linkage(pdist(X), method=a.method)
 
-    # 5. comparison
+    # true groups (for the K table and the comparison)
     bc = pd.read_csv(a.barcodes, sep="\t")
     bc.columns = [c.lstrip("#") for c in bc.columns]
     to_cell = dict(zip(bc.BARCODE.astype(str), bc.CELL.map(norm_cell)))
-    unknown = [c for c in clus.index if c not in to_cell]
+    unknown = [c for c in rdr.index if c not in to_cell]
     if unknown:
         sys.exit(f"ERROR: {len(unknown)} barcodes not in {a.barcodes}, e.g. {unknown[:3]}")
     groups, desc = true_groups(a.truth)
+    cell_group = pd.Series([groups.get(to_cell[c]) for c in rdr.index], index=rdr.index)
+    known = cell_group.notna().values
+
+    if kmin < kmax:
+        Dm = squareform(pdist(X))
+        rows = []
+        for k in range(kmin, kmax + 1):
+            lab = cluster(k)
+            rows.append({"K": k, "silhouette": silhouette(Dm, lab), "ARI vs truth": ari(cell_group[known], lab[known]),
+                         "smallest cluster": int(np.bincount(lab).min()), "_lab": lab})
+        free = max(rows, key=lambda r: r["silhouette"])
+        ok = [r for r in rows if r["smallest cluster"] >= a.min_size]
+        if ok:
+            best = max(ok, key=lambda r: r["silhouette"])
+        else:
+            best = free
+            print(f"[cluster_cells] no K in {kmin}-{kmax} has all clusters >= {a.min_size} cells; using the highest silhouette")
+        tab = pd.DataFrame(rows).drop(columns="_lab")
+        tab[f"all >= {a.min_size}"] = np.where(tab["smallest cluster"] >= a.min_size, "yes", "")
+        tab["chosen"] = np.where(tab.K == best["K"], "*", "")
+        tab.loc[(tab.K == free["K"]) & (tab.K != best["K"]), "chosen"] = "(best silhouette)"
+        print(f"\n== choosing K by silhouette ({'on ' + str(a.pcs) + ' PCs' if a.pcs > 0 else 'no PCA'}, {a.method})")
+        print(tab.round(4).to_string(index=False))
+        if a.plot_k:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots(figsize=(5.5, 3.6))
+            ax.plot(tab.K, tab.silhouette, "o-", label="silhouette")
+            ax.plot(tab.K, tab["ARI vs truth"], "s--", label="ARI vs truth")
+            ax.axvline(best["K"], color="0.6", lw=0.8, ls=":")
+            ax.set_xlabel("K")
+            ax.legend(fontsize=8)
+            ax.set_title(f"chosen K = {best['K']} (clusters >= {a.min_size} cells; highest silhouette overall: K = {free['K']})", fontsize=8)
+            fig.tight_layout()
+            fig.savefig(a.plot_k)
+            print(f"(plot: {a.plot_k})")
+        a.k, lab = best["K"], best["_lab"]
+    else:
+        a.k, lab = kmin, cluster(kmin)
+    clus = pd.Series(lab + 1, index=rdr.index, name="cluster")
+
+    # 6. comparison
     res = pd.DataFrame({"barcode": clus.index, "cell": [to_cell[c] for c in clus.index], "cluster": clus.values})
     res["group"] = res.cell.map(groups)
     missing = res.group.isna().sum()
