@@ -37,6 +37,9 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
                  oracle bin clusters (same copy numbers in the same cells = one cluster, from
                  eval/truth_hg38.tsv; scripts/oracle_clusters.py) instead of computed ones; needs
                  --from call. Folders chisel_<bins>_oracle/
+  --oracle-split P  as --oracle, but bins with less than P% of their bp in one oracle cluster get a
+                 cluster each (boundary bins kept out of the clusters they dilute). Folders
+                 chisel_<bins>_oracle_split<P>/
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
   --dry-run      print the sbatch commands without submitting
@@ -98,6 +101,7 @@ while (( $# )); do
         --ugpbins|--phaserbins) UGPBINS=${2:?$1 needs a value}; shift 2 ;;
         --hmm)     HMMK=${2:?--hmm needs a value}; shift 2 ;;
         --oracle)  ORACLE=true; shift ;;
+        --oracle-split) ORACLE=true; ORACLE_SPLIT=${2:?--oracle-split needs a percentage}; shift 2 ;;
         --dry-run) DRY=true; shift ;;
         --list)    list_routes; exit 0 ;;
         -h|--help) usage; exit 0 ;;
@@ -187,15 +191,21 @@ if [[ ${ORACLE:-false} == true ]]; then
     [[ -z ${HMMK:-} ]] || die "use either --hmm or --oracle"
     (( FROM_I >= 1 )) || die "--oracle re-does only the calling: start at the call stage (--from call)"
     CHISEL_ORACLE=true
+    if [[ -n ${ORACLE_SPLIT:-} ]]; then
+        [[ ${ORACLE_SPLIT} =~ ^[0-9]+$ ]] && (( ORACLE_SPLIT >= 1 && ORACLE_SPLIT <= 100 )) \
+            || die "--oracle-split needs a whole percentage 1-100, e.g. 75"
+        CHISEL_ORACLE_SPLIT=${ORACLE_SPLIT}
+        note "Boundary bins (< ${ORACLE_SPLIT}% in one oracle cluster) get a cluster each"
+    fi
     note "Oracle bin clusters (from ${EVAL_TRUTH}), on the combo.tsv of $(chisel_base_dir "${PHASER}")"
 fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0}"
 if [[ -n ${CALLER} ]]; then
     CALLER_BP=$(caller_binsize "${CALLER}")
     CALLER_BP=${CALLER_BP%%_hmm*}            # the bins, without an HMM run's suffix
-    CALLER_BP=${CALLER_BP%%_oracle}
+    CALLER_BP=${CALLER_BP%%_oracle*}
     case ${CALLER_BP} in
         var*)    note "${CALLER} bins: variable (${CALLER_BP#var} SNP reads per cell)" ;;
         pbins*)  note "${CALLER} bins: ${PHASER}'s, ${CALLER_BP#pbins} SNP reads per cell ($(phaser_bins_file "${PHASER}" "${CALLER_BP#pbins}"))" ;;

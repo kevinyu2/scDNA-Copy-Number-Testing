@@ -54,7 +54,7 @@ case ${CALLER} in
 esac
 case ${CALLER} in
     chisel) [[ -n ${CHISEL_HMM:-} ]] && LABEL="${LABEL%)}, HMM K=${CHISEL_HMM})"
-            [[ ${CHISEL_ORACLE:-false} == true ]] && LABEL="${LABEL%)}, oracle bin clusters)" ;;
+            [[ ${CHISEL_ORACLE:-false} == true ]] && LABEL="${LABEL%)}, oracle bin clusters$( (( ${CHISEL_ORACLE_SPLIT:-0} > 0 )) && echo ", boundary bins < ${CHISEL_ORACLE_SPLIT}% split"))" ;;
 esac
 
 for tool in minimap2 samtools python3; do

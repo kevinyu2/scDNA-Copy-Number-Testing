@@ -181,6 +181,8 @@ CHISEL_HMM=""                 # set per run with --hmm (K, or MIN-MAX to let the
 CHISEL_HMM_SELECT="bic"       # bic | silhouette (only matters with a MIN-MAX range)
 CHISEL_HMM_RESTARTS=10        # restarts per K
 CHISEL_HMM_EXTRA=""           # any other chisel_calling --hmm* options, e.g. "--hmmtransmat fixed --hmmdecode viterbi"
+CHISEL_ORACLE_SPLIT=0         # set per run with --oracle-split P: boundary bins (< P% in one oracle cluster) get a
+                              # cluster each instead of joining their majority; folders chisel_<bins>_oracle_split<P>/
 CHISEL_ORACLE=false           # set per run with --oracle: the calling with the oracle bin clusters (scripts/oracle_clusters.py,
                               # from eval/truth_hg38.tsv) instead of computed ones; folders chisel_<bins>_oracle/<phaser>/
 CHISEL_SEED=12

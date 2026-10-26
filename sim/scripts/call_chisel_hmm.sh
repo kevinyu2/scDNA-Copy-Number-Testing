@@ -42,7 +42,9 @@ if [[ ${ORACLE} == true ]]; then
     [[ -s ${EVAL_TRUTH} ]] || die "missing ${EVAL_TRUTH}: run any eval of this project first"
     conda_switch activate "${EVAL_ENV}"
     note "Oracle bin clusters from ${EVAL_TRUTH} on the bins of ${BASE}"
+    SPLIT_FRAC=$(awk -v p="${CHISEL_ORACLE_SPLIT:-0}" 'BEGIN{print p/100}')
     python3 -B "${SCRIPTS}/oracle_clusters.py" --truth "${EVAL_TRUTH}" --run "${BASE}" --out "${RUN_DIR}/oracle" \
+        --split-frac "${SPLIT_FRAC}" \
         || die "oracle_clusters.py failed"
     conda_switch deactivate
 fi

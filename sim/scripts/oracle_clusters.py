@@ -16,7 +16,8 @@ ends; overlapping pieces (duplicated mappings) keep the earlier piece. Overlayin
 gives stretches with one maternal and one paternal segment, hence one profile.
 
 Every bin of the run (the bins of its combo/combo.tsv, or of --bins) goes to the cluster covering
-most of its base pairs.
+most of its base pairs. With --split-frac F, a bin whose majority cluster covers less than F of it
+gets a cluster of its own instead (boundary bins kept out of the clusters they would dilute).
 
 Outputs (DIR, default RUN/oracle):
   clusters.tsv  #CHR START END CLUSTER FRAC ALIGNED NORMAL   one line per bin (Caller --clusters
@@ -25,6 +26,8 @@ Outputs (DIR, default RUN/oracle):
                 the cluster without CNAs
   summary.tsv   one line per cluster: bins, Mb, the tree segments in it, cells whose maternal /
                 paternal CN is not 1, and the distinct copy-number states
+  profiles.tsv  CLUSTER CELL MAT PAT: the true copy numbers of every cell in every cluster (for
+                cluster_matrix.py --eval); a split boundary bin gets its majority cluster's
 """
 import argparse
 import os
@@ -106,6 +109,8 @@ def main():
     ap.add_argument("--run", help="CHISEL run folder whose bins to use (its combo/combo.tsv), e.g. chisel_pbins8/perfect")
     ap.add_argument("--bins", help="Instead of --run: a file whose first 3 columns are CHR START END (e.g. a combo.tsv)")
     ap.add_argument("--out", help="Output folder (default: RUN/oracle)")
+    ap.add_argument("--split-frac", type=float, default=0.0,
+                    help="bins whose majority cluster covers less than this share of them get a cluster each (default 0: majority)")
     a = ap.parse_args()
     if not a.run and not a.bins:
         ap.error("give --run or --bins")
@@ -165,18 +170,24 @@ def main():
             segs_in[k][1].add(ps)
         k, kbp = max(bp.items(), key=lambda x: x[1])
         size = b.end - b.start
+        if kbp / size < a.split_frac:
+            k = ("split", b.chrom, b.start) + k            # a cluster of its own; truth = majority's
         if k not in key_of:
             key_of[k] = len(key_of)          # clusters numbered in genome order
-        is_normal = int(all(v == 1 for v in k[0]) and all(v == 1 for v in k[1]))
+        prof = k[-2:]
+        is_normal = int(k[0] != "split" and all(v == 1 for v in prof[0]) and all(v == 1 for v in prof[1]))
         rows.append((b.chrom, b.start, b.end, key_of[k], kbp / size, aligned / size, is_normal))
     res = pd.DataFrame(rows, columns=["#CHR", "START", "END", "CLUSTER", "FRAC", "ALIGNED", "NORMAL"])
     res.to_csv(os.path.join(out_dir, "clusters.tsv"), sep="\t", index=False, float_format="%.4f")
 
     # summary
     summ = []
+    prof_rows = []
     for k, cid in key_of.items():
         sel = res.CLUSTER == cid
-        mat, pat = np.array(k[0]), np.array(k[1])
+        split = k[0] == "split"
+        mat, pat = np.array(k[-2]), np.array(k[-1])
+        prof_rows.append(pd.DataFrame({"CLUSTER": cid, "CELL": cells, "MAT": mat, "PAT": pat}))
         states = pd.Series([f"{m}|{p}" for m, p in zip(mat, pat)]).value_counts()
         normal = (mat == 1).all() and (pat == 1).all()
         def seg_list(s):
@@ -186,10 +197,12 @@ def main():
             ("CLUSTER", cid), ("BINS", int(sel.sum())), ("MB", round((res.END[sel] - res.START[sel]).sum() / 1e6, 3)),
             ("MEAN_FRAC", round(res.FRAC[sel].mean(), 3)),
             ("CELLS_MAT_NOT1", int((mat != 1).sum())), ("CELLS_PAT_NOT1", int((pat != 1).sum())),
-            ("STATES", "normal (all 1|1)" if normal else ", ".join(f"{s} x{n}" for s, n in states.items())),
-            ("MAT_SEGMENTS", seg_list(segs_in[k][0])), ("PAT_SEGMENTS", seg_list(segs_in[k][1]))]))
+            ("STATES", ("boundary bin; majority: " if split else "") + ("normal (all 1|1)" if normal else ", ".join(f"{s} x{n}" for s, n in states.items()))),
+            ("MAT_SEGMENTS", seg_list(segs_in[k[-2:]][0])), ("PAT_SEGMENTS", seg_list(segs_in[k[-2:]][1]))]))
     summ = pd.DataFrame(summ).sort_values("CLUSTER")
     summ.to_csv(os.path.join(out_dir, "summary.tsv"), sep="\t", index=False)
+    pd.concat(prof_rows, ignore_index=True).sort_values(["CLUSTER", "CELL"]).to_csv(
+        os.path.join(out_dir, "profiles.tsv"), sep="\t", index=False)
 
     print(f"[oracle] bins: {len(res)} from {bins_path}", file=sys.stderr)
     print(f"[oracle] {len(key_of)} oracle clusters (cells: {len(cells)}); bins whose majority cluster has < 75% of their bp: "
@@ -197,7 +210,9 @@ def main():
           + (f"; overlapping truth pieces trimmed: {notes['overlap_bp']:,} bp" if notes["overlap_bp"] else ""), file=sys.stderr)
     with pd.option_context("display.width", 250, "display.max_columns", 20, "display.max_colwidth", 60):
         print(summ.drop(columns=["MAT_SEGMENTS", "PAT_SEGMENTS"]).to_string(index=False), file=sys.stderr)
-    print(f"[oracle] wrote {out_dir}/clusters.tsv and summary.tsv", file=sys.stderr)
+    if a.split_frac > 0:
+        print(f"[oracle] --split-frac {a.split_frac:g}: {sum(1 for k in key_of if k[0] == 'split')} boundary bins in clusters of their own", file=sys.stderr)
+    print(f"[oracle] wrote {out_dir}/clusters.tsv, summary.tsv and profiles.tsv", file=sys.stderr)
 
 
 if __name__ == "__main__":

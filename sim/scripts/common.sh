@@ -19,6 +19,7 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_PHASER_BINS:-} ]] && CHISEL_PHASER_BINS=${PIN_CHISEL_PHASER_BINS}
 [[ -n ${PIN_CHISEL_PHASER_PER_CELL:-} ]] && CHISEL_PHASER_PER_CELL=${PIN_CHISEL_PHASER_PER_CELL}
 [[ -n ${PIN_CHISEL_ORACLE:-} ]] && CHISEL_ORACLE=${PIN_CHISEL_ORACLE}
+[[ -n ${PIN_CHISEL_ORACLE_SPLIT:-} ]] && CHISEL_ORACLE_SPLIT=${PIN_CHISEL_ORACLE_SPLIT}
 if [[ -n ${PIN_CHISEL_HMM:-} ]]; then                    # "none" = pinned as a run without the HMM
     [[ ${PIN_CHISEL_HMM} == none ]] && CHISEL_HMM="" || CHISEL_HMM=${PIN_CHISEL_HMM}
 fi
@@ -48,7 +49,10 @@ caller_binsize() {                                   # caller -> bin size in bp
                    else
                        b=$(to_bp "${CHISEL_BINSIZE}")
                    fi
-                   [[ ${CHISEL_ORACLE:-false} == true ]] && b+="_oracle"     # oracle runs: chisel_<bins>_oracle/
+                   if [[ ${CHISEL_ORACLE:-false} == true ]]; then           # oracle runs: chisel_<bins>_oracle[_split<P>]/
+                       b+="_oracle"
+                       (( ${CHISEL_ORACLE_SPLIT:-0} > 0 )) && b+="_split${CHISEL_ORACLE_SPLIT}"
+                   fi
                    echo "${b}${CHISEL_HMM:+_hmm${CHISEL_HMM}}" ;;   # HMM runs: chisel_<bins>_hmm<K>/
         *)         die "unknown caller '$1'" ;;
     esac
@@ -173,7 +177,7 @@ make_lift_pafs() {
 # ============================================================
 
 call_dir() { echo "${PROJECT_DIR}/$1_$(caller_binsize "$1")/$2"; }     # caller phaser
-chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_ORACLE=false; call_dir chisel "$1" ); }   # phaser -> the same CHISEL run without --hmm/--oracle (its combo.tsv feeds them)
+chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_ORACLE=false; CHISEL_ORACLE_SPLIT=0; call_dir chisel "$1" ); }   # phaser -> the same CHISEL run without --hmm/--oracle (its combo.tsv feeds them)
 chisel_recall() { [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; }        # an HMM or oracle run: only the calling, on the base run's combo.tsv
 
 # CHISEL's barcoded BAM depends on neither the phaser nor the bin size, so it is shared
