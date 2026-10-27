@@ -53,9 +53,22 @@ case ${CALLER} in
     *)         LABEL="${CALLER} (${PHASER})" ;;
 esac
 case ${CALLER} in
-    chisel) [[ -n ${CHISEL_HMM:-} ]] && LABEL="${LABEL%)}, HMM K=${CHISEL_HMM})"
-            [[ ${CHISEL_ORACLE:-false} == true ]] && LABEL="${LABEL%)}, oracle bin clusters$( (( ${CHISEL_ORACLE_SPLIT:-0} > 0 )) && echo ", boundary bins < ${CHISEL_ORACLE_SPLIT}% split"))"
-            [[ ${CHISEL_CLONING:-hamming} != hamming ]] && LABEL="${LABEL%)}, ${CHISEL_CLONING} cloning)" ;;
+    chisel)
+        # plain if blocks: under set -e, "cond && X=$(...)" exits silently when the substitution returns non-zero
+        if [[ -n ${CHISEL_HMM:-} ]]; then
+            LABEL="${LABEL%)}, HMM K=${CHISEL_HMM})"
+        fi
+        if [[ ${CHISEL_ORACLE:-false} == true ]]; then
+            if (( ${CHISEL_ORACLE_SPLIT:-0} > 0 )); then
+                LABEL="${LABEL%)}, oracle bin clusters, boundary bins < ${CHISEL_ORACLE_SPLIT}% split)"
+            else
+                LABEL="${LABEL%)}, oracle bin clusters)"
+            fi
+        fi
+        if [[ ${CHISEL_CLONING:-hamming} != hamming ]]; then
+            LABEL="${LABEL%)}, ${CHISEL_CLONING} cloning)"
+        fi
+        ;;
 esac
 
 for tool in minimap2 samtools python3; do
