@@ -183,6 +183,8 @@ CHISEL_HMM_RESTARTS=10        # restarts per K
 CHISEL_HMM_EXTRA=""           # any other chisel_calling --hmm* options, e.g. "--hmmtransmat fixed --hmmdecode viterbi"
 CHISEL_ORACLE_SPLIT=0         # set per run with --oracle-split P: boundary bins (< P% in one oracle cluster) get a
                               # cluster each instead of joining their majority; folders chisel_<bins>_oracle_split<P>/
+CHISEL_CLONING=hamming        # set per run with --cloning divisive: re-do only the cloning of the run with the fork's
+                              # Cloner --clustering divisive (HMM_CHISEL_ENV); folders chisel_<bins>[_hmm<K>|_oracle]_divclone/
 CHISEL_ORACLE=false           # set per run with --oracle: the calling with the oracle bin clusters (scripts/oracle_clusters.py,
                               # from eval/truth_hg38.tsv) instead of computed ones; folders chisel_<bins>_oracle/<phaser>/
 CHISEL_SEED=12
