@@ -9,7 +9,7 @@
 #                                            (chisel/prep/ is shared by all)
 #   ${EVAL_DIR}/<phaser>_<caller>_<binsize bp>/      evaluation, e.g. eval/ugp_chisel_5000000/
 
-PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/no_ecDNA_small"
+PROJECT_DIR="/n/fs/ragr-data/users/ky8418/scDNA_sim/projects/small"
 CONDA=/n/fs/ragr-research/users/ky8418/miniconda3/etc/profile.d/conda.sh
 ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/scdna_pipeline"
 
