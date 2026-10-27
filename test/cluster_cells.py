@@ -179,7 +179,8 @@ def main():
     ap.add_argument("--perm-q", type=float, default=95, help="divisive: noise floor = this percentile of the permuted top PC variance (default 95)")
     ap.add_argument("--max-clusters", type=int, default=30, help="divisive: stop splitting at this many clusters (default 30)")
     ap.add_argument("--no-reassign", action="store_true", help="divisive: keep the split tree's assignment (no final reassignment)")
-    ap.add_argument("--floor-margin", type=float, default=1.5, help="divisive: a signal PC must exceed the permutation noise floor by this factor (default 1.5)")
+    ap.add_argument("--floor-margin", type=float, default=1.3, help="divisive: a signal PC must exceed the permutation noise floor by this factor (default 1.3)")
+    ap.add_argument("--scales", default="2,3", help="divisive: window lengths in consecutive bins for the features, comma-separated (1 = single bins; default 2,3)")
     ap.add_argument("--ashman", type=float, default=2.0, help="divisive: minimum Ashman's D of the two halves (default 2)")
     ap.add_argument("--peel", type=int, default=5, help="divisive: times to set aside small outlier groups and retry a split (default 5)")
     ap.add_argument("--features", type=int, default=200, help="divisive: features used per split, the group's most variable in noise units (0 = all; default 200)")
@@ -297,10 +298,12 @@ def main():
         arr = {"rdr": rdr.values, "count": piv("count").reindex_like(rdr).values, "norm": piv("norm").reindex_like(rdr).values,
                "a": piv("a").reindex_like(rdr).values, "b": piv("b").reindex_like(rdr).values}
         Xd = cc.feature_matrix(arr, rdr_weight=a.rdr_weight, noise_scale=a.noise_scale)
+        scales = [int(x) for x in a.scales.split(",") if x.strip()]
         lab, steps = cc.divisive(Xd, np.random.RandomState(a.seed), min_size=a.min_size, n_perm=a.perm, q=a.perm_q,
                                  margin=a.floor_margin, ashman=a.ashman, peel=a.peel, max_clusters=a.max_clusters,
                                  reassign=not a.no_reassign, outlier_z=a.outlier_z,
-                                 Z=cc.noise_matrix(arr) if a.features else None, n_features=a.features)
+                                 Z=cc.noise_matrix(arr) if a.features else None, n_features=a.features,
+                                 W=None if scales == [1] else cc.window_matrix([c[0] for c in rdr.columns], scales)[0])
         print("\n== divisive splits (chisel_hmm CellClusterer)\n" + "\n".join(steps))
         noisy = lab < 0
         if noisy.any():                                  # noisy cells set apart: shown as cluster 0
