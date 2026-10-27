@@ -283,7 +283,7 @@ def true_groups(truth):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--bins", required=True, help="PREFIX_bins.tsv from test/bin_variability.py")
+    ap.add_argument("--bins", help="PREFIX_bins.tsv from test/bin_variability.py of the same run (needed for the percentile selection; with --all-bins the run's own bins are used)")
     ap.add_argument("--run", help="CHISEL run folder (reads combo/combo.tsv)")
     ap.add_argument("--combo", help="instead of --run: a combo.tsv")
     ap.add_argument("--barcodes", required=True, help="<project>/chisel/prep/barcodedcells.info.tsv")
@@ -315,6 +315,8 @@ def main():
     a = ap.parse_args()
     if not (a.run or a.combo):
         ap.error("give --run or --combo")
+    if not a.bins and not a.all_bins:
+        ap.error("selecting bins needs --bins (PREFIX_bins.tsv of this run); or use --all-bins")
     if a.method == "divisive":
         a.k = a.k or "1"
     elif not a.k:
@@ -330,21 +332,38 @@ def main():
     if not 0 <= a.rdr_weight <= 1:
         ap.error("--rdr-weight must be in [0, 1]")
 
-    # 1. bins
-    b = pd.read_csv(a.bins, sep="\t", dtype={"chrom": str})
-    b["chrom"] = b.chrom.map(nchrom)
-    sel = pd.Series(True, index=b.index) if a.all_bins else select(b, f"RDR {a.metric}", f"BAF {a.metric}", a.rdr_pct, a.baf_pct, a.combine)
-    chosen = b[sel]
-    print(f"bins {'(all)' if a.all_bins else 'selected'}: {len(chosen)} of {len(b)} ({int((chosen.label == 'CNA').sum())} CNA, "
-          f"{int((chosen.label == 'no CNA').sum())} no CNA; labels only reported, not used)")
-    if len(chosen) < 2:
-        sys.exit("ERROR: fewer than 2 bins selected")
-
-    # 2. features
+    # 1. bins (2. features read first: the run's own bins)
     combo = a.combo or os.path.join(a.run, "combo", "combo.tsv")
     cols = ["chrom", "start", "end", "cell", "norm", "count", "rdr", "a", "b", "baf"]
     d = pd.read_csv(combo, sep="\t", header=None, comment="#", names=cols, dtype={"chrom": str, "cell": str})
     d["chrom"] = d.chrom.map(nchrom)
+    run_bins = d[["chrom", "start", "end"]].drop_duplicates()
+    if a.bins:
+        b = pd.read_csv(a.bins, sep="\t", dtype={"chrom": str})
+        b["chrom"] = b.chrom.map(nchrom)
+        common = b.merge(run_bins, on=["chrom", "start", "end"], how="inner")
+        if len(common) < 0.95 * len(run_bins):
+            msg = (f"only {len(common)} of the run's {len(run_bins)} bins are in {a.bins}: it was made for other bins "
+                   f"(another run or project?)")
+            if not a.all_bins:
+                sys.exit(f"ERROR: {msg}; rerun test/bin_variability.py on this run")
+            print(f"[cluster_cells] WARNING: {msg}; using the run's own bins")
+            b = None
+    else:
+        b = None
+    if b is None:                                       # --all-bins without a matching bins file
+        b = run_bins.assign(label="?").reset_index(drop=True)
+    sel = pd.Series(True, index=b.index) if a.all_bins else select(b, f"RDR {a.metric}", f"BAF {a.metric}", a.rdr_pct, a.baf_pct, a.combine)
+    chosen = b[sel]
+    if (chosen.label != "?").any():
+        print(f"bins {'(all)' if a.all_bins else 'selected'}: {len(chosen)} of {len(b)} ({int((chosen.label == 'CNA').sum())} CNA, "
+              f"{int((chosen.label == 'no CNA').sum())} no CNA; labels only reported, not used)")
+    else:
+        print(f"bins (all of the run's): {len(chosen)}")
+    if len(chosen) < 2:
+        sys.exit("ERROR: fewer than 2 bins selected")
+
+    # 2. features
     d = d.merge(chosen[["chrom", "start", "end"]], on=["chrom", "start", "end"], how="inner")
     d["n"] = d.a + d.b
     d.loc[d.n == 0, "baf"] = np.nan                                   # no SNP reads: no BAF
