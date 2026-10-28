@@ -53,6 +53,11 @@ for tool in chisel_calling python2.7; do
     command -v "$tool" >/dev/null || die "'$tool' not found in env ${HMM_CHISEL_ENV}"
 done
 chisel_calling -h 2>/dev/null | grep -q -- "--hmmk" || die "env ${HMM_CHISEL_ENV} has no HMM chisel_calling (needs the chisel_hmm hmm branch with chisel_calling --hmm)"
+MODE_ARGS=($(fork_mode_flags))
+if [[ ${CHISEL_MODE:-pseudobulk} != legacy ]]; then
+    chisel_calling -h 2>/dev/null | grep -q -- "--nopseudobulk" \
+        || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --nopseudobulk (apply the chisel_hmm patch with the pseudobulk defaults, or --mode legacy)"
+fi
 if [[ ${ORACLE} == true ]]; then
     chisel_calling -h 2>/dev/null | grep -q -- "--clusters" || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --clusters (apply the chisel_hmm patch with Caller --clusters)"
     HMM_ARGS=(--clusters "${RUN_DIR}/oracle/clusters.tsv")
@@ -68,7 +73,7 @@ EXTRA=(${CHISEL_HMM_EXTRA:-})
 
 for d in calls clones plots; do rm -rf "${RUN_DIR:?}/${d}"; done
 ln -sfn "${BASE}/combo" "${RUN_DIR}/combo"
-{ echo "source run: ${BASE}"; echo "combo.tsv:  ${COMBO}"; echo "clusters: ${HMM_ARGS[*]} ${EXTRA[*]}"; echo "date: $(date)"; } > "${RUN_DIR}/source_run.txt"
+{ echo "source run: ${BASE}"; echo "combo.tsv:  ${COMBO}"; echo "clusters: ${HMM_ARGS[*]} ${EXTRA[*]}"; echo "mode: ${CHISEL_MODE:-pseudobulk} ${MODE_ARGS[*]}"; echo "date: $(date)"; } > "${RUN_DIR}/source_run.txt"
 
 note "Source run: ${BASE}"
 note "Run:        ${RUN_DIR}  (env ${HMM_CHISEL_ENV})"
@@ -78,12 +83,13 @@ if [[ ${ORACLE} == true ]]; then
 else
     CLUSTER_ARGS=(--hmm "${HMM_ARGS[@]}" --hmmrestarts "${CHISEL_HMM_RESTARTS:-10}")
 fi
-note "chisel_calling ... ${CLUSTER_ARGS[*]} ${WEIGHTED[*]} ${EXTRA[*]}"
+note "chisel_calling ... ${CLUSTER_ARGS[*]} ${MODE_ARGS[*]} ${WEIGHTED[*]} ${EXTRA[*]}"
 cd "${RUN_DIR}"
 chisel_calling combo/combo.tsv -x . \
     -P "${CHISEL_MAXPLOIDY:-3}" -K "${CHISEL_UPPERK:-100}" --seed "${CHISEL_SEED}" -j "${CHISEL_JOBS}" \
     "${WEIGHTED[@]+"${WEIGHTED[@]}"}" \
     "${CLUSTER_ARGS[@]}" \
+    "${MODE_ARGS[@]+"${MODE_ARGS[@]}"}" \
     "${EXTRA[@]+"${EXTRA[@]}"}" \
     || true      # CHISEL's drivers do not report failures reliably; decide from the outputs
 

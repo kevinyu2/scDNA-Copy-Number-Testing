@@ -13,7 +13,7 @@
 # runs: the source is the same run with CHISEL's own cloning.
 #
 # Input:   $(clone_base_dir PHASER)/calls/calls.tsv   e.g. chisel_pbins8_hmm9/perfect/calls/calls.tsv
-# Outputs (in ${PROJECT_DIR}/chisel_<bins>[_hmm<K>|_oracle]_divclone/${PHASER}/):
+# Outputs (in ${PROJECT_DIR}/chisel_<bins>[_hmm<K>|_oracle]_pbclone or _divclone/${PHASER}/):
 #   calls/calls.tsv   a copy of the source's calls with CORRECTED_HAP_CN redone by the new clones
 #   clones/mapping.tsv  clones/log (the split tree)   plots/   combo -> the source's combo/ (a link)
 #   source_run.txt
@@ -24,7 +24,7 @@ source "${CONFIG_FILE:-./config.sh}"
 source ./scripts/common.sh
 PHASER=${PHASER:-perfect}
 
-[[ ${CHISEL_CLONING:-hamming} != hamming ]] || die "no cloning method given (run_pipeline.sh --cloning divisive)"
+[[ ${CHISEL_RECLONE:-false} == true && ${CHISEL_MODE:-pseudobulk} != legacy ]] || die "not a re-clone (run_pipeline.sh --reclone --mode pseudobulk|divisive)"
 source ${CONDA}
 
 set -euo pipefail
@@ -50,14 +50,18 @@ cut -f1-12 "${CALLS}" > "${RUN_DIR}/calls/calls.tsv"      # the source's calls w
 [[ -e ${BASE}/combo ]] && ln -sfn "$(readlink -f "${BASE}/combo")" "${RUN_DIR}/combo"
 WEIGHTED=()
 [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true ]] && WEIGHTED=(--weighted)
-{ echo "source run: ${BASE}"; echo "calls:      ${CALLS}"; echo "cloning:    ${CHISEL_CLONING} ${WEIGHTED[*]}"; echo "date: $(date)"; } \
+CLONE_ARGS=(--cloning divisive -P "${CHISEL_MAXPLOIDY:-3}")
+[[ ${CHISEL_MODE:-pseudobulk} == divisive ]] && CLONE_ARGS+=(--nopseudobulk)
+chisel_cloning -h 2>/dev/null | grep -q -- "--nopseudobulk" \
+    || die "env ${HMM_CHISEL_ENV}: chisel_cloning has no --nopseudobulk (apply the chisel_hmm patch with the pseudobulk defaults)"
+{ echo "source run: ${BASE}"; echo "calls:      ${CALLS}"; echo "cloning:    ${CHISEL_MODE:-pseudobulk}: ${CLONE_ARGS[*]} ${WEIGHTED[*]}"; echo "date: $(date)"; } \
     > "${RUN_DIR}/source_run.txt"
 
 note "Source run: ${BASE}"
 note "Run:        ${RUN_DIR}  (env ${HMM_CHISEL_ENV})"
-note "chisel_cloning calls/calls.tsv -x . --cloning ${CHISEL_CLONING} --seed ${CHISEL_SEED} ${WEIGHTED[*]}"
+note "chisel_cloning calls/calls.tsv -x . ${CLONE_ARGS[*]} --seed ${CHISEL_SEED} ${WEIGHTED[*]}"
 cd "${RUN_DIR}"
-chisel_cloning calls/calls.tsv -x . --cloning "${CHISEL_CLONING}" --seed "${CHISEL_SEED}" \
+chisel_cloning calls/calls.tsv -x . "${CLONE_ARGS[@]}" --seed "${CHISEL_SEED}" \
     "${WEIGHTED[@]+"${WEIGHTED[@]}"}" \
     || true      # CHISEL's drivers do not report failures reliably; decide from the outputs
 

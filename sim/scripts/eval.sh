@@ -65,8 +65,10 @@ case ${CALLER} in
                 LABEL="${LABEL%)}, oracle bin clusters)"
             fi
         fi
-        if [[ ${CHISEL_CLONING:-hamming} != hamming ]]; then
-            LABEL="${LABEL%)}, ${CHISEL_CLONING} cloning)"
+        if [[ ${CHISEL_RECLONE:-false} == true ]]; then
+            LABEL="${LABEL%)}, re-cloned: ${CHISEL_MODE:-pseudobulk})"
+        elif [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]] && [[ ${CHISEL_MODE:-pseudobulk} != legacy ]]; then
+            LABEL="${LABEL%)}, ${CHISEL_MODE:-pseudobulk})"
         fi
         ;;
 esac

@@ -20,7 +20,8 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_PHASER_PER_CELL:-} ]] && CHISEL_PHASER_PER_CELL=${PIN_CHISEL_PHASER_PER_CELL}
 [[ -n ${PIN_CHISEL_ORACLE:-} ]] && CHISEL_ORACLE=${PIN_CHISEL_ORACLE}
 [[ -n ${PIN_CHISEL_ORACLE_SPLIT:-} ]] && CHISEL_ORACLE_SPLIT=${PIN_CHISEL_ORACLE_SPLIT}
-[[ -n ${PIN_CHISEL_CLONING:-} ]] && CHISEL_CLONING=${PIN_CHISEL_CLONING}
+[[ -n ${PIN_CHISEL_MODE:-} ]] && CHISEL_MODE=${PIN_CHISEL_MODE}
+[[ -n ${PIN_CHISEL_RECLONE:-} ]] && CHISEL_RECLONE=${PIN_CHISEL_RECLONE}
 if [[ -n ${PIN_CHISEL_HMM:-} ]]; then                    # "none" = pinned as a run without the HMM
     [[ ${PIN_CHISEL_HMM} == none ]] && CHISEL_HMM="" || CHISEL_HMM=${PIN_CHISEL_HMM}
 fi
@@ -55,7 +56,14 @@ caller_binsize() {                                   # caller -> bin size in bp
                        (( ${CHISEL_ORACLE_SPLIT:-0} > 0 )) && b+="_split${CHISEL_ORACLE_SPLIT}"
                    fi
                    b+="${CHISEL_HMM:+_hmm${CHISEL_HMM}}"               # HMM runs: chisel_<bins>_hmm<K>/
-                   [[ ${CHISEL_CLONING:-hamming} == divisive ]] && b+="_divclone"   # re-cloned: ..._divclone/
+                   if [[ ${CHISEL_RECLONE:-false} == true ]]; then          # re-cloned: ..._pbclone/ or ..._divclone/
+                       if [[ ${CHISEL_MODE:-pseudobulk} == divisive ]]; then b+="_divclone"; else b+="_pbclone"; fi
+                   elif [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; then
+                       case ${CHISEL_MODE:-pseudobulk} in                   # fork runs: _pb, _div; legacy: no suffix
+                           pseudobulk) b+="_pb" ;;
+                           divisive)   b+="_div" ;;
+                       esac
+                   fi
                    echo "${b}" ;;
         *)         die "unknown caller '$1'" ;;
     esac
@@ -95,7 +103,7 @@ SCAN2_DIR="${PROJECT_DIR}/scan2_out"
 UGP_PHASED_VCF="${UGP_DIR}/out/phase/phased_het_snps.vcf.gz"
 ugp_bb_file() { echo "${UGP_DIR}/out/bb/MSR$1/bulk/bb.tsv.gz"; }   # bins of UGP pseudobulk/percell mode, per min_snp_reads
 chisel_env() {   # conda env of the CHISEL run: the fork for its new features, else the original
-    if [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true || ${CHISEL_CLONING:-hamming} != hamming ]]; then
+    if [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true || ${CHISEL_RECLONE:-false} == true ]]; then
         echo "${HMM_CHISEL_ENV:?HMM_CHISEL_ENV is not set in config.sh}"
     elif [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true || ${CHISEL_USE_NEW:-false} == true ]]; then
         echo "${NEW_CHISEL_ENV:?NEW_CHISEL_ENV is not set in config.sh}"
@@ -180,10 +188,18 @@ make_lift_pafs() {
 # ============================================================
 
 call_dir() { echo "${PROJECT_DIR}/$1_$(caller_binsize "$1")/$2"; }     # caller phaser
-chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_ORACLE=false; CHISEL_ORACLE_SPLIT=0; CHISEL_CLONING=hamming; call_dir chisel "$1" ); }   # phaser -> the same CHISEL run without --hmm/--oracle (its combo.tsv feeds them)
+chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_ORACLE=false; CHISEL_ORACLE_SPLIT=0; CHISEL_RECLONE=false; call_dir chisel "$1" ); }   # phaser -> the same CHISEL run without --hmm/--oracle (its combo.tsv feeds them)
 chisel_recall() { [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; }        # an HMM or oracle run: only the calling, on the base run's combo.tsv
-clone_base_dir() { ( CHISEL_CLONING=hamming; call_dir chisel "$1" ); }    # phaser -> the same run with CHISEL's own cloning
-chisel_reclone() { [[ ${CHISEL_CLONING:-hamming} != hamming ]]; }          # --cloning: only the cloning, on that run's calls
+clone_base_dir() { ( CHISEL_RECLONE=false; CHISEL_MODE=legacy; call_dir chisel "$1" ); }   # phaser -> the same run, legacy (its calls feed --reclone)
+chisel_reclone() { [[ ${CHISEL_RECLONE:-false} == true ]]; }          # --reclone: only the cloning, on that run's calls
+fork_mode_flags() {   # the fork's options for CHISEL_MODE (chisel_calling / chisel_cloning; its defaults are pseudobulk)
+    case ${CHISEL_MODE:-pseudobulk} in
+        pseudobulk) echo "" ;;
+        divisive)   echo "--nopseudobulk" ;;
+        legacy)     echo "--cloning hamming" ;;
+        *)          die "CHISEL_MODE must be pseudobulk, divisive or legacy (not '${CHISEL_MODE}')" ;;
+    esac
+}
 
 # CHISEL's barcoded BAM depends on neither the phaser nor the bin size, so it is shared
 CHISEL_PREP_DIR="${PROJECT_DIR}/chisel/prep"

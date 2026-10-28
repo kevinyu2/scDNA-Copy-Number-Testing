@@ -40,9 +40,15 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
   --oracle-split P  as --oracle, but bins with less than P% of their bp in one oracle cluster get a
                  cluster each (boundary bins kept out of the clusters they dilute). Folders
                  chisel_<bins>_oracle_split<P>/
-  --cloning divisive  CHISEL only: re-do only the cloning of an existing run (also an --hmm or
-                 --oracle run) with the fork's Cloner --clustering divisive, on a copy of its calls;
-                 needs --from call (or --from eval to re-score). Folders chisel_<bins>..._divclone/
+  --mode M       CHISEL --hmm / --oracle runs and --reclone: the fork's mode (default CHISEL_MODE,
+                 config.sh): pseudobulk = divisive cell groups before calling, HMM on their pooled
+                 reads, clone calls from pooled reads (the fork's default; folders ..._pb/);
+                 divisive = divisive cloning without pseudobulk (..._div/); legacy = CHISEL's own
+                 cloning (no suffix: the folders made before these modes)
+  --reclone      CHISEL only: re-do only the cloning of an existing legacy run (also --hmm or
+                 --oracle) in the --mode, on a copy of its calls; needs --from call (or --from eval
+                 to re-score). Folders ..._pbclone/ (pseudobulk) or ..._divclone/ (divisive)
+  --cloning divisive  the same as --reclone --mode divisive (the older option)
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
   --dry-run      print the sbatch commands without submitting
@@ -106,6 +112,8 @@ while (( $# )); do
         --oracle)  ORACLE=true; shift ;;
         --oracle-split) ORACLE=true; ORACLE_SPLIT=${2:?--oracle-split needs a percentage}; shift 2 ;;
         --cloning) CLONING=${2:?--cloning needs a method}; shift 2 ;;
+        --mode)    MODE=${2:?--mode needs pseudobulk, divisive or legacy}; shift 2 ;;
+        --reclone) RECLONE=true; shift ;;
         --dry-run) DRY=true; shift ;;
         --list)    list_routes; exit 0 ;;
         -h|--help) usage; exit 0 ;;
@@ -203,19 +211,33 @@ if [[ ${ORACLE:-false} == true ]]; then
     fi
     note "Oracle bin clusters (from ${EVAL_TRUTH}), on the combo.tsv of $(chisel_base_dir "${PHASER}")"
 fi
-if [[ -n ${CLONING:-} && ${CLONING} != hamming ]]; then
-    [[ ${CLONING} == divisive ]] || die "--cloning: unknown method '${CLONING}' (divisive)"
-    [[ ${CALLER} == chisel ]] || die "--cloning needs --caller chisel"
-    (( FROM_I >= 1 )) || die "--cloning re-does only the cloning: start at the call stage (--from call)"
-    CHISEL_CLONING=${CLONING}
-    note "Cloning: ${CLONING}, on the calls of $(clone_base_dir "${PHASER}")"
+if [[ -n ${CLONING:-} ]]; then                     # the older option: --cloning divisive = --reclone --mode divisive
+    case ${CLONING} in
+        divisive) RECLONE=true; MODE=divisive ;;
+        hamming)  ;;
+        *)        die "--cloning: unknown method '${CLONING}' (divisive; or use --reclone --mode M)" ;;
+    esac
+fi
+if [[ -n ${MODE:-} ]]; then
+    [[ ${MODE} =~ ^(pseudobulk|divisive|legacy)$ ]] || die "--mode needs pseudobulk, divisive or legacy (not '${MODE}')"
+    CHISEL_MODE=${MODE}
+fi
+if [[ ${RECLONE:-false} == true ]]; then
+    [[ ${CALLER} == chisel ]] || die "--reclone needs --caller chisel"
+    [[ ${CHISEL_MODE:-pseudobulk} != legacy ]] || die "--reclone needs --mode pseudobulk or divisive (the run itself is the legacy one)"
+    (( FROM_I >= 1 )) || die "--reclone re-does only the cloning: start at the call stage (--from call)"
+    CHISEL_RECLONE=true
+    note "Re-cloning (${CHISEL_MODE:-pseudobulk}) the calls of $(clone_base_dir "${PHASER}")"
+elif [[ ${CALLER} == chisel ]] && { [[ -n ${CHISEL_HMM:-} ]] || [[ ${CHISEL_ORACLE:-false} == true ]]; }; then
+    note "Fork mode: ${CHISEL_MODE:-pseudobulk}"
 fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_CLONING=${CHISEL_CLONING:-hamming}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_MODE=${CHISEL_MODE:-pseudobulk},PIN_CHISEL_RECLONE=${CHISEL_RECLONE:-false}"
 if [[ -n ${CALLER} ]]; then
     CALLER_BP=$(caller_binsize "${CALLER}")
     CALLER_BP=${CALLER_BP%%_divclone}
+    CALLER_BP=${CALLER_BP%%_pbclone}
     CALLER_BP=${CALLER_BP%%_hmm*}            # the bins, without an HMM run's suffix
     CALLER_BP=${CALLER_BP%%_oracle*}
     case ${CALLER_BP} in
@@ -237,8 +259,8 @@ need() {   # path description fix
 
 if [[ -z ${AFTER} ]]; then
     if chisel_reclone && runs call; then
-        need "$(clone_base_dir "${PHASER}")/calls/calls.tsv" "calls of the run without --cloning" \
-            "run it first: the same command without --cloning"
+        need "$(clone_base_dir "${PHASER}")/calls/calls.tsv" "calls of the legacy run" \
+            "run it first: the same command with --mode legacy and without --reclone"
     elif chisel_recall && runs call; then
         need "$(chisel_base_dir "${PHASER}")/combo/combo.tsv" "combo.tsv of the run without --hmm/--oracle" \
             "run it first: the same command without --hmm/--oracle (--from call)"
@@ -307,9 +329,9 @@ if runs call; then
             ;;
         chisel)
           if chisel_reclone; then
-            # another cloning: only the cloning, on a copy of the calls of the run without --cloning
+            # re-cloning: only the cloning, on a copy of the calls of the legacy run
             J=$(submit clone_chisel "${PREV}" scripts/clone_chisel.sh)
-            SUMMARY+=("call (chisel ${CHISEL_CLONING} cloning): ${J}")
+            SUMMARY+=("call (chisel re-cloning, ${CHISEL_MODE:-pseudobulk}): ${J}")
           elif chisel_recall; then
             # HMM or oracle clusters: only the calling, on the combo.tsv of the run without them
             J=$(submit call_chisel_hmm "${PREV}" scripts/call_chisel_hmm.sh)
