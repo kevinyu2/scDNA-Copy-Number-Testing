@@ -13,7 +13,7 @@
 # runs: the source is the same run with CHISEL's own cloning.
 #
 # Input:   $(clone_base_dir PHASER)/calls/calls.tsv   e.g. chisel_pbins8_hmm9/perfect/calls/calls.tsv
-# Outputs (in ${PROJECT_DIR}/chisel_<bins>[_hmm<K>|_oracle]_pbclone or _divclone/${PHASER}/):
+# Outputs (in ${PROJECT_DIR}/calls/chisel_<bins>[_hmm<K>|_oracle]_pbclone or _divclone/${PHASER}/):
 #   calls/calls.tsv   a copy of the source's calls with CORRECTED_HAP_CN redone by the new clones
 #   clones/mapping.tsv  clones/log (the split tree)   plots/   combo -> the source's combo/ (a link)
 #   source_run.txt
@@ -47,7 +47,7 @@ mkdir -p "${RUN_DIR}"
 for d in calls clones plots; do rm -rf "${RUN_DIR:?}/${d}"; done
 mkdir -p "${RUN_DIR}/calls"
 cut -f1-12 "${CALLS}" > "${RUN_DIR}/calls/calls.tsv"      # the source's calls without its corrected states
-[[ -e ${BASE}/combo ]] && ln -sfn "$(readlink -f "${BASE}/combo")" "${RUN_DIR}/combo"
+[[ -e ${BASE}/combo ]] && rel_link "$(readlink -f "${BASE}/combo")" "${RUN_DIR}/combo"
 WEIGHTED=()
 [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true ]] && WEIGHTED=(--weighted)
 CLONE_ARGS=(--cloning divisive -P "${CHISEL_MAXPLOIDY:-3}")

@@ -9,7 +9,7 @@
 # CHISEL on the barcoded BAM from chisel_prep.sh, using the phased het SNPs
 # from ${PHASER}. Submitted by run_pipeline.sh --caller chisel.
 #
-# Outputs (in ${PROJECT_DIR}/chisel_<binsize bp>/${PHASER}/, e.g. chisel_5000000/ugp/):
+# Outputs (in ${PROJECT_DIR}/calls/chisel_<binsize bp>/${PHASER}/, e.g. chisel_5000000/ugp/):
 #   phased_snps.tsv   CHISEL's -l input ("#CHR POS PHASE", PHASE = 0|1 or 1|0),
 #                     made from the phaser's VCF
 #   rdr/ baf/ combo/ calls/ clones/ plots/   CHISEL's own folders

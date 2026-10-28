@@ -55,7 +55,7 @@ SLURM_ACCOUNT="allcs"
 # HiScanner
 # ============================================================
 HS_ENV="${ENV}"                                   # change if HiScanner lives in its own env
-# Run dir is ${PROJECT_DIR}/hiscanner_<HS_BINSIZE>/<phaser>/ (config.yaml, metadata.txt, output/)
+# Run dir is ${PROJECT_DIR}/calls/hiscanner_<HS_BINSIZE>/<phaser>/ (config.yaml, metadata.txt, output/)
 
 # Reference files
 FASTA_SPLIT_DIR="${RESOURCES_DIR%/}/hg38_split"   # must contain <chrom>.fasta (e.g. chr1.fasta)
@@ -166,7 +166,7 @@ PERFECT_CHUNK_CELLS=50       # BAMs per bcftools mpileup job (they run in parall
 # ============================================================
 # CHISEL
 # ============================================================
-# Barcoded BAM: ${PROJECT_DIR}/chisel/prep/ (shared). Runs: ${PROJECT_DIR}/chisel_<binsize bp>/<phaser>/
+# Barcoded BAM: ${PROJECT_DIR}/chisel/prep/ (shared). Runs: ${PROJECT_DIR}/calls/chisel_<binsize bp>/<phaser>/
 CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/chisel"           # original CHISEL
 NEW_CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/new_chisel"   # chisel_hmm fork
 # The fork is used automatically for --varbins, --phaserbins and bins_perfect.sh; everything else

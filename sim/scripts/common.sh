@@ -187,7 +187,14 @@ make_lift_pafs() {
 #   e.g. chisel_5000000/ugp/, hiscanner_500000/scan2/
 # ============================================================
 
-call_dir() { echo "${PROJECT_DIR}/$1_$(caller_binsize "$1")/$2"; }     # caller phaser
+CALLS_DIR="${CALLS_DIR:-${PROJECT_DIR}/calls}"   # every run folder: calls/<caller>_<bins...>/<phaser>/ (eval/ and chisel/prep/ stay at the top)
+call_dir() { echo "${CALLS_DIR}/$1_$(caller_binsize "$1")/$2"; }     # caller phaser
+rel_link() {   # rel_link TARGET LINK: a symlink with a relative target, so moving the calls tree keeps it valid
+    local target=$1 link=$2 rel
+    rel=$(realpath -m --relative-to="$(dirname "${link}")" "${target}" 2>/dev/null) \
+        || rel=$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "${target}" "$(dirname "${link}")")
+    ln -sfn "${rel}" "${link}"
+}
 chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_ORACLE=false; CHISEL_ORACLE_SPLIT=0; CHISEL_RECLONE=false; call_dir chisel "$1" ); }   # phaser -> the same CHISEL run without --hmm/--oracle (its combo.tsv feeds them)
 chisel_recall() { [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; }        # an HMM or oracle run: only the calling, on the base run's combo.tsv
 clone_base_dir() { ( CHISEL_RECLONE=false; CHISEL_MODE=legacy; call_dir chisel "$1" ); }   # phaser -> the same run, legacy (its calls feed --reclone)

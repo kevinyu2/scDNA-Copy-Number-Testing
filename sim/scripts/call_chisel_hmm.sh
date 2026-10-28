@@ -12,7 +12,7 @@
 # and oracle/summary.tsv, then Caller takes them with --clusters).
 #
 # Input:   $(chisel_base_dir PHASER)/combo/combo.tsv   the same run without --hmm (e.g. chisel_pbins8/perfect/)
-# Outputs (in ${PROJECT_DIR}/chisel_<bins>_hmm<K>/${PHASER}/, e.g. chisel_pbins8_hmm7/perfect/):
+# Outputs (in ${PROJECT_DIR}/calls/chisel_<bins>_hmm<K>/${PHASER}/, e.g. chisel_pbins8_hmm7/perfect/):
 #   combo -> the source run's combo/ (a link)       source_run.txt   which run it came from
 #   calls/calls.tsv  calls/hmm_selection.tsv (per-K table, * = chosen)   clones/mapping.tsv   plots/
 # Runs chisel_calling (Caller --clustering hmm, Cloner, Plotter) from HMM_CHISEL_ENV with the run's
@@ -72,7 +72,7 @@ WEIGHTED=()
 EXTRA=(${CHISEL_HMM_EXTRA:-})
 
 for d in calls clones plots; do rm -rf "${RUN_DIR:?}/${d}"; done
-ln -sfn "${BASE}/combo" "${RUN_DIR}/combo"
+rel_link "${BASE}/combo" "${RUN_DIR}/combo"
 { echo "source run: ${BASE}"; echo "combo.tsv:  ${COMBO}"; echo "clusters: ${HMM_ARGS[*]} ${EXTRA[*]}"; echo "mode: ${CHISEL_MODE:-pseudobulk} ${MODE_ARGS[*]}"; echo "date: $(date)"; } > "${RUN_DIR}/source_run.txt"
 
 note "Source run: ${BASE}"

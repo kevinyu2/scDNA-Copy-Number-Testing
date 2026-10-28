@@ -73,7 +73,7 @@ Examples
   ./run_pipeline.sh --phaser ugp --caller chisel --from call --binsize 1Mb   # a second bin size
   ./run_sim.sh -- --phaser ugp --caller chisel                  # simulate, then all of this
 
-Outputs: ${PROJECT_DIR}/<caller>_<binsize bp>/<phaser>/ and ${EVAL_DIR}/<phaser>_<caller>_<binsize bp>/
+Outputs: ${PROJECT_DIR}/calls/<caller>_<binsize bp>/<phaser>/ and ${EVAL_DIR}/<phaser>_<caller>_<binsize bp>/
 EOF
 }
 

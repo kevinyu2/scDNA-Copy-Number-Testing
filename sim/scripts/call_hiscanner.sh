@@ -7,7 +7,7 @@
 #SBATCH --error=logs/call_hiscanner_%j.err
 
 # Submitted by run_pipeline.sh --caller hiscanner (--phaser scan2 or perfect).
-# Output: ${PROJECT_DIR}/hiscanner_<binsize bp>/${PHASER}/output/final_calls
+# Output: ${PROJECT_DIR}/calls/hiscanner_<binsize bp>/${PHASER}/output/final_calls
 #
 # Input folder ("scan2_output" in HiScanner's config): scan2 -> SCAN2's output;
 # perfect -> ${PROJECT_DIR}/perfect/hiscanner_input (same file names, true phase).
