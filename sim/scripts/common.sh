@@ -21,6 +21,7 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_ORACLE:-} ]] && CHISEL_ORACLE=${PIN_CHISEL_ORACLE}
 [[ -n ${PIN_CHISEL_ORACLE_SPLIT:-} ]] && CHISEL_ORACLE_SPLIT=${PIN_CHISEL_ORACLE_SPLIT}
 [[ -n ${PIN_CHISEL_MODE:-} ]] && CHISEL_MODE=${PIN_CHISEL_MODE}
+[[ -n ${PIN_CHISEL_HMM_NOISE:-} ]] && CHISEL_HMM_NOISE=${PIN_CHISEL_HMM_NOISE}
 [[ -n ${PIN_CHISEL_RECLONE:-} ]] && CHISEL_RECLONE=${PIN_CHISEL_RECLONE}
 if [[ -n ${PIN_CHISEL_HMM:-} ]]; then                    # "none" = pinned as a run without the HMM
     [[ ${PIN_CHISEL_HMM} == none ]] && CHISEL_HMM="" || CHISEL_HMM=${PIN_CHISEL_HMM}
@@ -56,6 +57,9 @@ caller_binsize() {                                   # caller -> bin size in bp
                        (( ${CHISEL_ORACLE_SPLIT:-0} > 0 )) && b+="_split${CHISEL_ORACLE_SPLIT}"
                    fi
                    b+="${CHISEL_HMM:+_hmm${CHISEL_HMM}}"               # HMM runs: chisel_<bins>_hmm<K>/
+                   if [[ -n ${CHISEL_HMM:-} && ${CHISEL_HMM_NOISE:-counting} == counting ]]; then
+                       b+="_cn"                                          # counting-noise HMM: ..._hmm<K>_cn...; legacy noise: none
+                   fi
                    if [[ ${CHISEL_RECLONE:-false} == true ]]; then          # re-cloned: ..._pbclone/ or ..._divclone/
                        if [[ ${CHISEL_MODE:-pseudobulk} == divisive ]]; then b+="_divclone"; else b+="_pbclone"; fi
                    elif [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; then

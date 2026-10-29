@@ -48,6 +48,10 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
   --reclone      CHISEL only: re-do only the cloning of an existing legacy run (also --hmm or
                  --oracle) in the --mode, on a copy of its calls; needs --from call (or --from eval
                  to re-score). Folders ..._pbclone/ (pseudobulk) or ..._divclone/ (divisive)
+  --hmmnoise N   with --hmm: the HMM's noise model (default CHISEL_HMM_NOISE, config.sh): counting =
+                 known read-count variances of every bin + overdispersion and extra variance shared
+                 by all states (the fork's default; folders ..._hmm<K>_cn...); legacy = every state its
+                 own variances (no suffix: the HMM folders made before)
   --cloning divisive  the same as --reclone --mode divisive (the older option)
   --after IDS    wait for these SLURM job IDs (colon- or comma-separated) before
                  starting; run_sim.sh passes its job IDs here
@@ -113,6 +117,7 @@ while (( $# )); do
         --oracle-split) ORACLE=true; ORACLE_SPLIT=${2:?--oracle-split needs a percentage}; shift 2 ;;
         --cloning) CLONING=${2:?--cloning needs a method}; shift 2 ;;
         --mode)    MODE=${2:?--mode needs pseudobulk, divisive or legacy}; shift 2 ;;
+        --hmmnoise) HMMNOISE=${2:?--hmmnoise needs counting or legacy}; shift 2 ;;
         --reclone) RECLONE=true; shift ;;
         --dry-run) DRY=true; shift ;;
         --list)    list_routes; exit 0 ;;
@@ -222,6 +227,11 @@ if [[ -n ${MODE:-} ]]; then
     [[ ${MODE} =~ ^(pseudobulk|divisive|legacy)$ ]] || die "--mode needs pseudobulk, divisive or legacy (not '${MODE}')"
     CHISEL_MODE=${MODE}
 fi
+if [[ -n ${HMMNOISE:-} ]]; then
+    [[ ${HMMNOISE} =~ ^(counting|legacy)$ ]] || die "--hmmnoise needs counting or legacy (not '${HMMNOISE}')"
+    [[ -n ${HMMK:-} ]] || die "--hmmnoise goes with --hmm (it is the HMM's noise model)"
+    CHISEL_HMM_NOISE=${HMMNOISE}
+fi
 if [[ ${RECLONE:-false} == true ]]; then
     [[ ${CALLER} == chisel ]] || die "--reclone needs --caller chisel"
     [[ ${CHISEL_MODE:-pseudobulk} != legacy ]] || die "--reclone needs --mode pseudobulk or divisive (the run itself is the legacy one)"
@@ -229,11 +239,11 @@ if [[ ${RECLONE:-false} == true ]]; then
     CHISEL_RECLONE=true
     note "Re-cloning (${CHISEL_MODE:-pseudobulk}) the calls of $(clone_base_dir "${PHASER}")"
 elif [[ ${CALLER} == chisel ]] && { [[ -n ${CHISEL_HMM:-} ]] || [[ ${CHISEL_ORACLE:-false} == true ]]; }; then
-    note "Fork mode: ${CHISEL_MODE:-pseudobulk}"
+    note "Fork mode: ${CHISEL_MODE:-pseudobulk}$([[ -n ${CHISEL_HMM:-} ]] && echo ", HMM noise: ${CHISEL_HMM_NOISE:-counting}")"
 fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_MODE=${CHISEL_MODE:-pseudobulk},PIN_CHISEL_RECLONE=${CHISEL_RECLONE:-false}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_MODE=${CHISEL_MODE:-pseudobulk},PIN_CHISEL_HMM_NOISE=${CHISEL_HMM_NOISE:-counting},PIN_CHISEL_RECLONE=${CHISEL_RECLONE:-false}"
 if [[ -n ${CALLER} ]]; then
     CALLER_BP=$(caller_binsize "${CALLER}")
     CALLER_BP=${CALLER_BP%%_divclone}

@@ -56,7 +56,11 @@ case ${CALLER} in
     chisel)
         # plain if blocks: under set -e, "cond && X=$(...)" exits silently when the substitution returns non-zero
         if [[ -n ${CHISEL_HMM:-} ]]; then
-            LABEL="${LABEL%)}, HMM K=${CHISEL_HMM})"
+            if [[ ${CHISEL_HMM_NOISE:-counting} == counting ]]; then
+                LABEL="${LABEL%)}, HMM K=${CHISEL_HMM} counting noise)"
+            else
+                LABEL="${LABEL%)}, HMM K=${CHISEL_HMM})"
+            fi
         fi
         if [[ ${CHISEL_ORACLE:-false} == true ]]; then
             if (( ${CHISEL_ORACLE_SPLIT:-0} > 0 )); then
