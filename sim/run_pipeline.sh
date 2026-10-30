@@ -48,6 +48,9 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
   --reclone      CHISEL only: re-do only the cloning of an existing legacy run (also --hmm or
                  --oracle) in the --mode, on a copy of its calls; needs --from call (or --from eval
                  to re-score). Folders ..._pbclone/ (pseudobulk) or ..._divclone/ (divisive)
+                 (--hmm and --oracle re-do only the calling on the plain CHISEL run's combo.tsv; from the
+                 phase stage, or when that run does not exist yet, it is queued first, with --oracle also
+                 its eval for the lifted truth)
   --hmmnoise N   with --hmm: the HMM's noise model (default CHISEL_HMM_NOISE, config.sh): counting =
                  known read-count variances of every bin + overdispersion and extra variance shared
                  by all states (the fork's default; folders ..._hmm<K>_cn...); legacy = every state its
@@ -199,14 +202,12 @@ if [[ -n ${HMMK:-} ]]; then
     else
         (( HMMK >= 1 )) || die "--hmm needs at least 1 cluster"
     fi
-    (( FROM_I >= 1 )) || die "--hmm re-does only the calling: start at the call stage (--from call); the run without --hmm makes combo.tsv"
     CHISEL_HMM=${HMMK}
     note "HMM: ${HMMK} clusters, on the combo.tsv of $(chisel_base_dir "${PHASER}")"
 fi
 if [[ ${ORACLE:-false} == true ]]; then
     [[ ${CALLER} == chisel ]] || die "--oracle needs --caller chisel"
     [[ -z ${HMMK:-} ]] || die "use either --hmm or --oracle"
-    (( FROM_I >= 1 )) || die "--oracle re-does only the calling: start at the call stage (--from call)"
     CHISEL_ORACLE=true
     if [[ -n ${ORACLE_SPLIT:-} ]]; then
         [[ ${ORACLE_SPLIT} =~ ^[0-9]+$ ]] && (( ORACLE_SPLIT >= 1 && ORACLE_SPLIT <= 100 )) \
@@ -244,6 +245,21 @@ fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
 PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_MODE=${CHISEL_MODE:-pseudobulk},PIN_CHISEL_HMM_NOISE=${CHISEL_HMM_NOISE:-counting},PIN_CHISEL_RECLONE=${CHISEL_RECLONE:-false}"
+# An --hmm or --oracle run re-does only the calling on the combo.tsv of the plain CHISEL run. When the route
+# starts before the call stage, or that combo.tsv does not exist yet, the plain run is queued first (pinned
+# without --hmm/--oracle, so it writes its own folder), and for --oracle also its eval (the lifted truth).
+BASE_FIRST=false
+if [[ ${CALLER} == chisel ]] && chisel_recall && runs call; then
+    if runs phase; then
+        BASE_FIRST=true
+    elif [[ -z ${AFTER} && ! -s $(chisel_base_dir "${PHASER}")/combo/combo.tsv ]]; then
+        BASE_FIRST=true
+    fi
+    if [[ ${BASE_FIRST} == true ]]; then
+        BASE_PINS=$(echo "${PINS}" | sed -E 's/PIN_CHISEL_HMM=[^,]*/PIN_CHISEL_HMM=none/; s/PIN_CHISEL_ORACLE=[^,]*/PIN_CHISEL_ORACLE=false/; s/PIN_CHISEL_ORACLE_SPLIT=[^,]*/PIN_CHISEL_ORACLE_SPLIT=0/; s/PIN_CHISEL_RECLONE=[^,]*/PIN_CHISEL_RECLONE=false/')
+        note "The plain CHISEL run $(chisel_base_dir "${PHASER}") is queued first$([[ ${CHISEL_ORACLE:-false} == true ]] && echo ", with its eval (the lifted truth for the oracle)")"
+    fi
+fi
 if [[ -n ${CALLER} ]]; then
     CALLER_BP=$(caller_binsize "${CALLER}")
     CALLER_BP=${CALLER_BP%%_divclone}
@@ -271,7 +287,7 @@ if [[ -z ${AFTER} ]]; then
     if chisel_reclone && runs call; then
         need "$(clone_base_dir "${PHASER}")/calls/calls.tsv" "calls of the legacy run" \
             "run it first: the same command with --mode legacy and without --reclone"
-    elif chisel_recall && runs call; then
+    elif chisel_recall && runs call && [[ ${BASE_FIRST} != true ]]; then
         need "$(chisel_base_dir "${PHASER}")/combo/combo.tsv" "combo.tsv of the run without --hmm/--oracle" \
             "run it first: the same command without --hmm/--oracle (--from call)"
         [[ ${CHISEL_ORACLE:-false} != true ]] || need "${EVAL_TRUTH}" "lifted truth" \
@@ -281,7 +297,7 @@ if [[ -z ${AFTER} ]]; then
             || die "no cell BAMs in ${CELL_BAM_DIR}; run ./run_sim.sh first"
         need "${BULK_BAM}" "bulk BAM" "run ./run_sim.sh first"
     fi
-    if (( FROM_I >= 1 )) && ! chisel_recall && ! chisel_reclone; then
+    if (( FROM_I >= 1 )) && ! chisel_reclone && { ! chisel_recall || [[ ${BASE_FIRST} == true ]]; }; then
         need "$(phaser_output "${PHASER}")" "${PHASER} output" "start from the phase stage (--from phase)"
         if [[ ${CALLER} == chisel && ${CHISEL_PHASER_BINS:-false} == true && ${PHASER} == ugp ]]; then
             need "$(phaser_bins_file ugp "${CHISEL_PHASER_PER_CELL}")" "UGP bins" "make them: --phaser ugp --to phase --phaserbins ${CHISEL_PHASER_PER_CELL} (UGP_MODE=pseudobulk), or start this run --from phase"
@@ -300,9 +316,9 @@ mkdir -p logs   # the #SBATCH --output paths are relative to sim/
 
 join_deps() { local out="" x; for x in "$@"; do [[ -n $x ]] && out+="${out:+:}$x"; done; echo "${out}"; }
 
-submit() {   # label deps script [extra sbatch args...]
+submit() {   # label deps script [extra sbatch args...]; the jobs' settings are SUBMIT_PINS if set, else PINS
     local label=$1 deps=$2 script=$3; shift 3
-    local args=(--parsable --export="ALL,PHASER=${PHASER},CALLER=${CALLER},${PINS}")
+    local args=(--parsable --export="ALL,PHASER=${PHASER},CALLER=${CALLER},${SUBMIT_PINS:-${PINS}}")
     [[ -n ${deps} ]] && args+=(--dependency="afterok:${deps}" --kill-on-invalid-dep=yes)
     if [[ ${DRY} == true ]]; then
         echo "  sbatch ${args[*]} $* ${script}" >&2
@@ -344,6 +360,26 @@ if runs call; then
             SUMMARY+=("call (chisel re-cloning, ${CHISEL_MODE:-pseudobulk}): ${J}")
           elif chisel_recall; then
             # HMM or oracle clusters: only the calling, on the combo.tsv of the run without them
+            if [[ ${BASE_FIRST} == true ]]; then
+                SUBMIT_PINS=${BASE_PINS}
+                P=${PREP:-$(submit chisel_prep "${AFTER}" scripts/chisel_prep.sh)}
+                SUMMARY+=("call (chisel_prep): ${P}")
+                DEPS=$(join_deps "${PREV}" "${P}")
+                if [[ ${CHISEL_PHASER_BINS:-false} == true && ${PHASER} == perfect ]]; then
+                    B=$(submit bins_perfect "${DEPS}" scripts/bins_perfect.sh)
+                    SUMMARY+=("call (bins_perfect): ${B}")
+                    DEPS=$(join_deps "${DEPS}" "${B}")
+                fi
+                BJ=$(submit call_chisel "${DEPS}" scripts/call_chisel.sh)
+                SUMMARY+=("call (plain chisel, makes combo.tsv): ${BJ}")
+                PREV=${BJ}
+                if [[ ${CHISEL_ORACLE:-false} == true ]]; then
+                    BE=$(submit eval "${BJ}" scripts/eval.sh)
+                    SUMMARY+=("eval (plain chisel, writes the lifted truth): ${BE}")
+                    PREV=$(join_deps "${BJ}" "${BE}")
+                fi
+                unset SUBMIT_PINS
+            fi
             J=$(submit call_chisel_hmm "${PREV}" scripts/call_chisel_hmm.sh)
             SUMMARY+=("call (chisel $([[ ${CHISEL_ORACLE:-false} == true ]] && echo "oracle clusters" || echo "HMM ${CHISEL_HMM}")): ${J}")
           else
