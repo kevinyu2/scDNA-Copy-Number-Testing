@@ -57,6 +57,9 @@ MODE_ARGS=($(fork_mode_flags))
 if [[ ${CHISEL_MODE:-pseudobulk} != legacy ]]; then
     chisel_calling -h 2>/dev/null | grep -q -- "--nopseudobulk" \
         || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --nopseudobulk (apply the chisel_hmm patch with the pseudobulk defaults, or --mode legacy)"
+    chisel_calling -h 2>/dev/null | grep -q -- "--floormargin" \
+        || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --floormargin (apply the chisel_hmm patch with the split-test options, or --mode legacy)"
+    MODE_ARGS+=($(split_test_flags))
 fi
 NOISE_ARGS=()
 if [[ -n ${CHISEL_HMM:-} ]]; then

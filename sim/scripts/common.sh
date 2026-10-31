@@ -23,6 +23,8 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_MODE:-} ]] && CHISEL_MODE=${PIN_CHISEL_MODE}
 [[ -n ${PIN_CHISEL_HMM_NOISE:-} ]] && CHISEL_HMM_NOISE=${PIN_CHISEL_HMM_NOISE}
 [[ -n ${PIN_CHISEL_RECLONE:-} ]] && CHISEL_RECLONE=${PIN_CHISEL_RECLONE}
+[[ -n ${PIN_CHISEL_CELL_PERMQ:-} ]] && CHISEL_CELL_PERMQ=${PIN_CHISEL_CELL_PERMQ}
+[[ -n ${PIN_CHISEL_CELL_FLOORMARGIN:-} ]] && CHISEL_CELL_FLOORMARGIN=${PIN_CHISEL_CELL_FLOORMARGIN}
 if [[ -n ${PIN_CHISEL_HMM:-} ]]; then                    # "none" = pinned as a run without the HMM
     [[ ${PIN_CHISEL_HMM} == none ]] && CHISEL_HMM="" || CHISEL_HMM=${PIN_CHISEL_HMM}
 fi
@@ -203,6 +205,9 @@ chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_ORACLE=false; CHISEL_ORACLE_SPLIT=0;
 chisel_recall() { [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; }        # an HMM or oracle run: only the calling, on the base run's combo.tsv
 clone_base_dir() { ( CHISEL_RECLONE=false; CHISEL_MODE=legacy; call_dir chisel "$1" ); }   # phaser -> the same run, legacy (its calls feed --reclone)
 chisel_reclone() { [[ ${CHISEL_RECLONE:-false} == true ]]; }          # --reclone: only the cloning, on that run's calls
+split_test_flags() {  # the fork's divisive split-test options (chisel_calling / chisel_cloning --permq --floormargin)
+    echo "--permq ${CHISEL_CELL_PERMQ:-90} --floormargin ${CHISEL_CELL_FLOORMARGIN:-1.2}"
+}
 fork_mode_flags() {   # the fork's options for CHISEL_MODE (chisel_calling / chisel_cloning; its defaults are pseudobulk)
     case ${CHISEL_MODE:-pseudobulk} in
         pseudobulk) echo "" ;;

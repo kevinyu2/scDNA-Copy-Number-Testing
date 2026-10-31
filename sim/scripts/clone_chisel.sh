@@ -52,6 +52,9 @@ WEIGHTED=()
 [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true ]] && WEIGHTED=(--weighted)
 CLONE_ARGS=(--cloning divisive -P "${CHISEL_MAXPLOIDY:-3}")
 [[ ${CHISEL_MODE:-pseudobulk} == divisive ]] && CLONE_ARGS+=(--nopseudobulk)
+chisel_cloning -h 2>/dev/null | grep -q -- "--floormargin" \
+    || die "env ${HMM_CHISEL_ENV}: chisel_cloning has no --floormargin (apply the chisel_hmm patch with the split-test options)"
+CLONE_ARGS+=($(split_test_flags))
 chisel_cloning -h 2>/dev/null | grep -q -- "--nopseudobulk" \
     || die "env ${HMM_CHISEL_ENV}: chisel_cloning has no --nopseudobulk (apply the chisel_hmm patch with the pseudobulk defaults)"
 { echo "source run: ${BASE}"; echo "calls:      ${CALLS}"; echo "cloning:    ${CHISEL_MODE:-pseudobulk}: ${CLONE_ARGS[*]} ${WEIGHTED[*]}"; echo "date: $(date)"; } \

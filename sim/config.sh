@@ -191,6 +191,12 @@ CHISEL_MODE=pseudobulk        # the fork's mode for --hmm / --oracle runs and --
 CHISEL_HMM_NOISE=counting     # HMM emission noise (set per run with --hmmnoise): counting = known read-count variances
                               # + shared overdispersion and extra variance (the fork's default; folders ..._hmm<K>_cn...);
                               # legacy = per-state variances (no suffix: the HMM folders made before)
+# Divisive cell grouping (CHISEL_MODE pseudobulk / divisive, and --reclone): a group of cells is split (2-means
+# on its signal PCs) when a PC beats the permutation noise floor. Lower values find smaller clones, at the risk
+# of overcloning. (The fork's defaults; runs made before used Gaussian-mode cuts and 95 / 1.5.) Recorded in each
+# run's source_run.txt, not in folder names.
+CHISEL_CELL_PERMQ=90          # noise floor = this percentile of the top PC variance of feature-shuffled copies of a group
+CHISEL_CELL_FLOORMARGIN=1.2   # a signal PC must beat the noise floor by this factor
 CHISEL_RECLONE=false          # set per run with --reclone: re-do only the cloning of an existing legacy run, in CHISEL_MODE
 CHISEL_ORACLE=false           # set per run with --oracle: the calling with the oracle bin clusters (scripts/oracle_clusters.py,
                               # from eval/truth_hg38.tsv) instead of computed ones; folders chisel_<bins>_oracle/<phaser>/
