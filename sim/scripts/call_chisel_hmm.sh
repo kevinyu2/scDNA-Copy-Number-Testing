@@ -60,6 +60,9 @@ if [[ ${CHISEL_MODE:-pseudobulk} != legacy ]]; then
     chisel_calling -h 2>/dev/null | grep -q -- "--floormargin" \
         || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --floormargin (apply the chisel_hmm patch with the split-test options, or --mode legacy)"
     MODE_ARGS+=($(split_test_flags))
+    chisel_calling -h 2>/dev/null | grep -q -- "--minclone" \
+        || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --minclone (apply the chisel_hmm patch with --minclone)"
+    MODE_ARGS+=(--minclone "${CHISEL_CELL_MINSIZE:-30}")
 fi
 NOISE_ARGS=()
 if [[ -n ${CHISEL_HMM:-} ]]; then

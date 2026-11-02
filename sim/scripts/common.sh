@@ -25,6 +25,7 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_RECLONE:-} ]] && CHISEL_RECLONE=${PIN_CHISEL_RECLONE}
 [[ -n ${PIN_CHISEL_CELL_PERMQ:-} ]] && CHISEL_CELL_PERMQ=${PIN_CHISEL_CELL_PERMQ}
 [[ -n ${PIN_CHISEL_CELL_FLOORMARGIN:-} ]] && CHISEL_CELL_FLOORMARGIN=${PIN_CHISEL_CELL_FLOORMARGIN}
+[[ -n ${PIN_CHISEL_CELL_MINSIZE:-} ]] && CHISEL_CELL_MINSIZE=${PIN_CHISEL_CELL_MINSIZE}
 if [[ -n ${PIN_CHISEL_HMM:-} ]]; then                    # "none" = pinned as a run without the HMM
     [[ ${PIN_CHISEL_HMM} == none ]] && CHISEL_HMM="" || CHISEL_HMM=${PIN_CHISEL_HMM}
 fi
@@ -69,6 +70,10 @@ caller_binsize() {                                   # caller -> bin size in bp
                            pseudobulk) b+="_pb" ;;
                            divisive)   b+="_div" ;;
                        esac
+                   fi
+                   if [[ ${CHISEL_RECLONE:-false} == true || -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]] \
+                      && [[ ${CHISEL_MODE:-pseudobulk} != legacy && ${CHISEL_CELL_MINSIZE:-14} != 14 ]]; then
+                       b+="_min${CHISEL_CELL_MINSIZE}"                   # fork runs with another smallest clone: ..._pb_min30/
                    fi
                    echo "${b}" ;;
         *)         die "unknown caller '$1'" ;;

@@ -197,6 +197,8 @@ CHISEL_HMM_NOISE=counting     # HMM emission noise (set per run with --hmmnoise)
 # run's source_run.txt, not in folder names.
 CHISEL_CELL_PERMQ=90          # noise floor = this percentile of the top PC variance of feature-shuffled copies of a group
 CHISEL_CELL_FLOORMARGIN=1.2   # a signal PC must beat the noise floor by this factor
+CHISEL_CELL_MINSIZE=30        # smallest cell group / clone (the fork's --minclone, default 30; Cloner -s for --reclone).
+                              # Any value but 14 (used before) adds _min<N> to the fork runs' folders: ..._pb_min30/
 CHISEL_RECLONE=false          # set per run with --reclone: re-do only the cloning of an existing legacy run, in CHISEL_MODE
 CHISEL_ORACLE=false           # set per run with --oracle: the calling with the oracle bin clusters (scripts/oracle_clusters.py,
                               # from eval/truth_hg38.tsv) instead of computed ones; folders chisel_<bins>_oracle/<phaser>/
