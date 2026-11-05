@@ -10,6 +10,10 @@ sit on different cells, whereas k > 1 puts identical events on the SAME cells (t
 which is the signal-boost effect). Which clade gets which (S, k) is shuffled, so position in the tree does not
 line up with the design. Locations are random on chr1, with a minimum gap between events.
 
+With --batches B (config.sh NUM_BATCHES) the tree is ONE batch: the clade sizes above divided by B (B = 20: 100 cells,
+leaves of 5). The pooled data, batch1_cell0 ... batchB_cell<tree cells - 1>, then has the clade sizes above, and the
+event positions are the same for any B with the same --seed. first_cell/last_cell in the design table are per batch.
+
 Writes  <out>.tree  (first line = tree, then the CNV table, as scDNA_sim.py reads it; no comments allowed)
         <out>.design.tsv  one row per event: clade, cells (first/last cell index), N, S, k, type, hap, location
         <out>.clades.tsv  one row per clade
@@ -47,26 +51,27 @@ class Clade:
         return "(" + ",".join(c.string() for c in self.children) + ")" + ev
 
 
-def build_clades():
+def build_clades(B=1):
+    """Clade tree for ONE batch: the pooled sizes (2000, 1000, ...) divided by the number of batches B."""
     n = {"L": 0, "K": 0, "J": 0}
 
     def leaf():
         n["M"] = n.get("M", 0) + 1
-        return Clade("M{}".format(n["M"]), 100, leaf=True)
+        return Clade("M{}".format(n["M"]), 100 // B, leaf=True)
 
     def l200():
         n["L"] += 1
-        return Clade("L{}".format(n["L"]), 200, [leaf(), leaf()])
+        return Clade("L{}".format(n["L"]), 200 // B, [leaf(), leaf()])
 
     def k500():
         n["K"] += 1
-        return Clade("K{}".format(n["K"]), 500, [l200(), l200(), leaf()])
+        return Clade("K{}".format(n["K"]), 500 // B, [l200(), l200(), leaf()])
 
     def j1000():
         n["J"] += 1
-        return Clade("J{}".format(n["J"]), 1000, [k500(), k500()])
+        return Clade("J{}".format(n["J"]), 1000 // B, [k500(), k500()])
 
-    return Clade("root", 2000, [j1000(), j1000()])
+    return Clade("root", 2000 // B, [j1000(), j1000()])
 
 
 def walk(c):
@@ -115,15 +120,19 @@ def main():
     ap.add_argument("--type", default="DEL", choices=["DEL", "AMP"], help="event type (default DEL: one haplotype loses the segment; AMP: one extra copy)")
     ap.add_argument("--hap", default="M", choices=["M", "P"], help="haplotype of every event (default M)")
     ap.add_argument("--gap", type=float, default=2.0, help="minimum gap between events in Mb (default 2)")
+    ap.add_argument("--batches", type=int, default=1, help="number of simulation batches (config.sh NUM_BATCHES); the tree is for ONE batch, so its clade sizes are the pooled ones divided by this (default 1). Must divide 100")
     ap.add_argument("--seed", type=int, default=1, help="seed of the clade shuffle and of the positions (default 1)")
     a = ap.parse_args()
     rng = random.Random(a.seed)
 
-    root = build_clades()
+    B = a.batches
+    if B < 1 or 100 % B:
+        sys.exit("--batches must divide 100 (the smallest clade has 100 cells in the pool)")
+    root = build_clades(B)
     clades = list(walk(root))
     by_n = {}
     for c in clades:
-        by_n.setdefault(c.cells, []).append(c)
+        by_n.setdefault(c.cells * B, []).append(c)      # keyed by the POOLED number of cells
     for n, cs in by_n.items():
         if len(cs) != len(DESIGN[n]):
             sys.exit("design for N={} has {} entries but the tree has {} clades".format(n, len(DESIGN[n]), len(cs)))
@@ -160,17 +169,17 @@ def main():
         for eid, c, j, s, e in rows:
             f.write("{}\t{}\t{}\t\tchr1:{}-{}\n".format(eid, a.type, a.hap, s, e))
     with open(a.out + ".design.tsv", "w") as f:
-        f.write("event_id\tclade\tclade_cells\tfirst_cell\tlast_cell\tsize_bp\tk_same_cells\tcopy\ttype\thap\tchrom\tstart\tend\n")
+        f.write("event_id\tclade\tclade_cells\ttree_cells\tfirst_cell\tlast_cell\tbatches\tsize_bp\tk_same_cells\tcopy\ttype\thap\tchrom\tstart\tend\n")
         for eid, c, j, s, e in rows:
-            f.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tchr1\t{}\t{}\n".format(
-                eid, c.name, c.cells, c.first, c.first + c.cells - 1, c.size, c.k, j, a.type, a.hap, s, e))
+            f.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tchr1\t{}\t{}\n".format(
+                eid, c.name, c.cells * B, c.cells, c.first, c.first + c.cells - 1, B, c.size, c.k, j, a.type, a.hap, s, e))
     with open(a.out + ".clades.tsv", "w") as f:
-        f.write("clade\tcells\tfirst_cell\tlast_cell\tsize_bp\tk\n")
+        f.write("clade\tclade_cells\ttree_cells\tfirst_cell\tlast_cell\tbatches\tsize_bp\tk\n")
         for c in clades:
             if c.events:
-                f.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(c.name, c.cells, c.first, c.first + c.cells - 1, c.size, c.k))
+                f.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(c.name, c.cells * B, c.cells, c.first, c.first + c.cells - 1, B, c.size, c.k))
     tot = sum(c.size * c.k for c in clades)
-    print("{} events, {:.1f} Mb of CNA, {} cells; wrote {}.tree / .design.tsv / .clades.tsv".format(len(rows), tot / M, root.cells, a.out))
+    print("{} events, {:.1f} Mb of CNA, {} cells per batch x {} batches; wrote {}.tree / .design.tsv / .clades.tsv".format(len(rows), tot / M, root.cells, B, a.out))
 
 
 if __name__ == "__main__":
