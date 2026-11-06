@@ -23,6 +23,7 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 [[ -n ${PIN_CHISEL_MODE:-} ]] && CHISEL_MODE=${PIN_CHISEL_MODE}
 [[ -n ${PIN_CHISEL_HMM_NOISE:-} ]] && CHISEL_HMM_NOISE=${PIN_CHISEL_HMM_NOISE}
 [[ -n ${PIN_CHISEL_RECLONE:-} ]] && CHISEL_RECLONE=${PIN_CHISEL_RECLONE}
+[[ -n ${PIN_CHISEL_CLONER:-} ]] && CHISEL_CLONER=${PIN_CHISEL_CLONER}
 [[ -n ${PIN_CHISEL_CELL_PERMQ:-} ]] && CHISEL_CELL_PERMQ=${PIN_CHISEL_CELL_PERMQ}
 [[ -n ${PIN_CHISEL_CELL_FLOORMARGIN:-} ]] && CHISEL_CELL_FLOORMARGIN=${PIN_CHISEL_CELL_FLOORMARGIN}
 [[ -n ${PIN_CHISEL_CELL_MINSIZE:-} ]] && CHISEL_CELL_MINSIZE=${PIN_CHISEL_CELL_MINSIZE}
@@ -65,6 +66,8 @@ caller_binsize() {                                   # caller -> bin size in bp
                    fi
                    if [[ ${CHISEL_RECLONE:-false} == true ]]; then          # re-cloned: ..._pbclone/ or ..._divclone/
                        if [[ ${CHISEL_MODE:-pseudobulk} == divisive ]]; then b+="_divclone"; else b+="_pbclone"; fi
+                   elif [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]] && [[ ${CHISEL_CLONER:-false} != true ]]; then
+                       b+="_nc"                                          # no cloner (the fork's default): ..._hmm<K>_cn_nc/
                    elif [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]]; then
                        case ${CHISEL_MODE:-pseudobulk} in                   # fork runs: _pb, _div; legacy: no suffix
                            pseudobulk) b+="_pb" ;;
@@ -72,7 +75,8 @@ caller_binsize() {                                   # caller -> bin size in bp
                        esac
                    fi
                    if [[ ${CHISEL_RECLONE:-false} == true || -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]] \
-                      && [[ ${CHISEL_MODE:-pseudobulk} != legacy && ${CHISEL_CELL_MINSIZE:-14} != 14 ]]; then
+                      && [[ ${CHISEL_CLONER:-false} == true || ${CHISEL_RECLONE:-false} == true ]] \
+      && [[ ${CHISEL_MODE:-pseudobulk} != legacy && ${CHISEL_CELL_MINSIZE:-14} != 14 ]]; then
                        b+="_min${CHISEL_CELL_MINSIZE}"                   # fork runs with another smallest clone: ..._pb_min30/
                    fi
                    echo "${b}" ;;

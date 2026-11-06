@@ -43,6 +43,8 @@ LEVELS=all
 case ${CALLER} in
     hiscanner) LABEL="HiScanner (${PHASER}, $(caller_binsize hiscanner) bp bins)"; LEVELS=allele_specific ;;
     chisel)    CHISEL_EVAL_CN="${CHISEL_EVAL_CN:-corrected}"
+               # no cloner = no CORRECTED_HAP_CN: score the per-cell calls
+               [[ -s $(call_dir chisel "${PHASER}")/clones/mapping.tsv ]] || CHISEL_EVAL_CN=raw
                if [[ ${CHISEL_PHASER_BINS:-false} == true ]]; then
                    LABEL="CHISEL (${PHASER}, ${PHASER} bins ${CHISEL_PHASER_PER_CELL} SNP reads/cell, ${CHISEL_EVAL_CN})"
                elif [[ ${CHISEL_VARBINS:-false} == true ]]; then
@@ -69,9 +71,10 @@ case ${CALLER} in
                 LABEL="${LABEL%)}, oracle bin clusters)"
             fi
         fi
+        if [[ ${CHISEL_CLONER:-false} == true ]]; then LABEL="${LABEL%)}, cloner)"; fi
         if [[ ${CHISEL_RECLONE:-false} == true ]]; then
             LABEL="${LABEL%)}, re-cloned: ${CHISEL_MODE:-pseudobulk})"
-        elif [[ -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ]] && [[ ${CHISEL_MODE:-pseudobulk} != legacy ]]; then
+        elif [[ ${CHISEL_CLONER:-false} == true && ( -n ${CHISEL_HMM:-} || ${CHISEL_ORACLE:-false} == true ) && ${CHISEL_MODE:-pseudobulk} != legacy ]]; then
             LABEL="${LABEL%)}, ${CHISEL_MODE:-pseudobulk})"
         fi
         ;;
@@ -170,5 +173,15 @@ python3 -B "${SCRIPTS}/eval_calls.py" \
     --max-cells-plot "${EVAL_MAX_CELLS_PLOT}" \
     --seg-min-frac "${EVAL_SEG_MIN_FRAC:-0.75}" \
     --levels "${LEVELS}"
+
+# 5. Detection heatmap (subclone size x CNA size) from section_confusion.tsv, when the tree has a design table
+DESIGN="${TREE_FILE%.tree}.design.tsv"
+if [[ -s ${DESIGN} && -s ${OUT_DIR}/section_confusion.tsv ]]; then
+    python3 -B "${SCRIPTS}/eval_detection.py" --eval-dir "${OUT_DIR}" --design "${DESIGN}" \
+        --seg-min-frac "${EVAL_SEG_MIN_FRAC:-0.75}" --title "${LABEL}" -o "${OUT_DIR}/detection" \
+        || note "WARNING: eval_detection.py failed"
+else
+    note "No detection heatmap (no ${DESIGN})"
+fi
 
 note "Done: ${OUT_DIR}"

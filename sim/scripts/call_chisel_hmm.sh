@@ -2,7 +2,7 @@
 #SBATCH --job-name=call_chisel_hmm
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=4:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/call_chisel_hmm_%j.out
 #SBATCH --error=logs/call_chisel_hmm_%j.err
 
@@ -53,8 +53,13 @@ for tool in chisel_calling python2.7; do
     command -v "$tool" >/dev/null || die "'$tool' not found in env ${HMM_CHISEL_ENV}"
 done
 chisel_calling -h 2>/dev/null | grep -q -- "--hmmk" || die "env ${HMM_CHISEL_ENV} has no HMM chisel_calling (needs the chisel_hmm hmm branch with chisel_calling --hmm)"
-MODE_ARGS=($(fork_mode_flags))
-if [[ ${CHISEL_MODE:-pseudobulk} != legacy ]]; then
+MODE_ARGS=()
+CLONER=${CHISEL_CLONER:-false}
+if [[ ${CLONER} == true ]]; then
+    chisel_calling -h 2>/dev/null | grep -q -- "--cloner" || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --cloner (apply the chisel_hmm cloner-opt-in patch)"
+    MODE_ARGS=(--cloner $(fork_mode_flags))
+fi
+if [[ ${CLONER} == true && ${CHISEL_MODE:-pseudobulk} != legacy ]]; then
     chisel_calling -h 2>/dev/null | grep -q -- "--nopseudobulk" \
         || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --nopseudobulk (apply the chisel_hmm patch with the pseudobulk defaults, or --mode legacy)"
     chisel_calling -h 2>/dev/null | grep -q -- "--floormargin" \
@@ -109,7 +114,7 @@ chisel_calling combo/combo.tsv -x . \
 
 fail() { echo "ERROR: $1" >&2; [[ -s $2 ]] && { echo "--- last lines of $2 ---" >&2; tail -n 20 "$2" >&2; }; exit 1; }
 [[ $(grep -vc '^#' calls/calls.tsv 2>/dev/null || true) -gt 0 ]] || fail "no calls in calls/calls.tsv" calls/log
-[[ -s clones/mapping.tsv ]] || fail "no clones/mapping.tsv" clones/log
+[[ ${CLONER} != true || -s clones/mapping.tsv ]] || fail "no clones/mapping.tsv" clones/log
 if [[ ${ORACLE} == true ]]; then
     note "Oracle clusters (oracle/summary.tsv):"
     cut -f1-7 oracle/summary.tsv | sed 's/^/    /' >&2

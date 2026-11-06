@@ -45,6 +45,9 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
                  reads, clone calls from pooled reads (the fork's default; folders ..._pb/);
                  divisive = divisive cloning without pseudobulk (..._div/); legacy = CHISEL's own
                  cloning (no suffix: the folders made before these modes)
+  --cloner       with --hmm / --oracle: also run the fork's cloner (cell groups, clone-corrected calls,
+                 clones/mapping.tsv). Default: no cloner, every cell is called on its own reads
+                 (folders ..._nc/ without it; with it the ..._pb/ / ..._div/ folders)
   --reclone      CHISEL only: re-do only the cloning of an existing legacy run (also --hmm or
                  --oracle) in the --mode, on a copy of its calls; needs --from call (or --from eval
                  to re-score). Folders ..._pbclone/ (pseudobulk) or ..._divclone/ (divisive)
@@ -122,6 +125,7 @@ while (( $# )); do
         --mode)    MODE=${2:?--mode needs pseudobulk, divisive or legacy}; shift 2 ;;
         --hmmnoise) HMMNOISE=${2:?--hmmnoise needs counting or legacy}; shift 2 ;;
         --reclone) RECLONE=true; shift ;;
+        --cloner)  CHISEL_CLONER=true; shift ;;
         --dry-run) DRY=true; shift ;;
         --list)    list_routes; exit 0 ;;
         -h|--help) usage; exit 0 ;;
@@ -244,7 +248,7 @@ elif [[ ${CALLER} == chisel ]] && { [[ -n ${CHISEL_HMM:-} ]] || [[ ${CHISEL_ORAC
 fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_MODE=${CHISEL_MODE:-pseudobulk},PIN_CHISEL_HMM_NOISE=${CHISEL_HMM_NOISE:-counting},PIN_CHISEL_RECLONE=${CHISEL_RECLONE:-false},PIN_CHISEL_CELL_PERMQ=${CHISEL_CELL_PERMQ:-90},PIN_CHISEL_CELL_FLOORMARGIN=${CHISEL_CELL_FLOORMARGIN:-1.2},PIN_CHISEL_CELL_MINSIZE=${CHISEL_CELL_MINSIZE:-30}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_MODE=${CHISEL_MODE:-pseudobulk},PIN_CHISEL_HMM_NOISE=${CHISEL_HMM_NOISE:-counting},PIN_CHISEL_RECLONE=${CHISEL_RECLONE:-false},PIN_CHISEL_CLONER=${CHISEL_CLONER:-false},PIN_CHISEL_CELL_PERMQ=${CHISEL_CELL_PERMQ:-90},PIN_CHISEL_CELL_FLOORMARGIN=${CHISEL_CELL_FLOORMARGIN:-1.2},PIN_CHISEL_CELL_MINSIZE=${CHISEL_CELL_MINSIZE:-30}"
 # An --hmm or --oracle run re-does only the calling on the combo.tsv of the plain CHISEL run. When the route
 # starts before the call stage, or that combo.tsv does not exist yet, the plain run is queued first (pinned
 # without --hmm/--oracle, so it writes its own folder), and for --oracle also its eval (the lifted truth).
