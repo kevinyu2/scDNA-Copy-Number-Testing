@@ -34,6 +34,14 @@ DESIGN = {
          + [(s, 1) for s in (100 * K, 200 * K, 500 * K, 1 * M)]                        # 4 second replicates
          + [(2 * M, 1), (2 * M, 2), (5 * M, 1), (5 * M, 2)],
 }
+# --profile small: no events on the 1000 / 2000-cell clades, more replicates at 100-500 cells (sizes 100 kb - 2 Mb)
+DESIGN_SMALL = {
+    2000: [None],
+    1000: [None, None],
+    500: [(100 * K, 1), (200 * K, 1), (500 * K, 1), (1 * M, 1)],
+    200: [(s, 1) for s in (100 * K, 200 * K, 500 * K, 1 * M, 2 * M)] * 1 + [(100 * K, 1), (200 * K, 1), (500 * K, 1)],
+    100: [(s, 1) for s in (100 * K, 200 * K, 500 * K, 1 * M)] * 4 + [(2 * M, 1)] * 2 + [(100 * K, 2), (200 * K, 2)],
+}
 # chr1 regions used, in the simulator's (assembly) coordinates; the centromere / 1q12 region (~110-160 Mb) is left out
 USABLE = [(8 * M, 112 * M), (160 * M, 232 * M)]
 
@@ -121,6 +129,7 @@ def main():
     ap.add_argument("--hap", default="M", choices=["M", "P"], help="haplotype of every event (default M)")
     ap.add_argument("--gap", type=float, default=2.0, help="minimum gap between events in Mb (default 2)")
     ap.add_argument("--batches", type=int, default=1, help="number of simulation batches (config.sh NUM_BATCHES); the tree is for ONE batch, so its clade sizes are the pooled ones divided by this (default 1). Must divide 100")
+    ap.add_argument("--profile", default="spread", choices=["spread", "small"], help="spread: the full design (default); small: no events on the 1000/2000-cell clades, more replicates at 100-500 cells")
     ap.add_argument("--seed", type=int, default=1, help="seed of the clade shuffle and of the positions (default 1)")
     a = ap.parse_args()
     rng = random.Random(a.seed)
@@ -133,13 +142,14 @@ def main():
     by_n = {}
     for c in clades:
         by_n.setdefault(c.cells * B, []).append(c)      # keyed by the POOLED number of cells
+    design = DESIGN if a.profile == "spread" else DESIGN_SMALL
     for n, cs in by_n.items():
-        if len(cs) != len(DESIGN[n]):
-            sys.exit("design for N={} has {} entries but the tree has {} clades".format(n, len(DESIGN[n]), len(cs)))
-        d = list(DESIGN[n])
+        if len(cs) != len(design[n]):
+            sys.exit("design for N={} has {} entries but the tree has {} clades".format(n, len(design[n]), len(cs)))
+        d = list(design[n])
         rng.shuffle(d)
-        for c, (s, k) in zip(cs, d):
-            c.size, c.k = s, k
+        for c, sk in zip(cs, d):
+            c.size, c.k = sk if sk else (0, 0)
 
     # first cell of every clade (leaves in left-to-right order = the simulator's cell numbering)
     nxt = [0]

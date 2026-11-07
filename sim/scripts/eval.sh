@@ -16,6 +16,7 @@
 # 3. standardize_calls.py: the caller's output -> common calls table.
 # 4. eval_calls.py: per-cell track plots, pooled confusion matrices, tables.
 #
+# EVAL_DETECTION_ONLY=true (env): only section_confusion.tsv + the detection heatmap (no per-cell plots, much faster).
 # Output: ${EVAL_DIR}/<phaser>_<caller>_<binsize bp>/   e.g. eval/ugp_chisel_5000000/
 # All settings live in config.sh (EVAL section).
 
@@ -172,7 +173,8 @@ python3 -B "${SCRIPTS}/eval_calls.py" \
     --cells-per-page "${EVAL_CELLS_PER_PAGE}" \
     --max-cells-plot "${EVAL_MAX_CELLS_PLOT}" \
     --seg-min-frac "${EVAL_SEG_MIN_FRAC:-0.75}" \
-    --levels "${LEVELS}"
+    --levels "${LEVELS}" \
+    $([[ ${EVAL_DETECTION_ONLY:-false} == true ]] && echo --detection-only)
 
 # 5. Detection heatmap (subclone size x CNA size) from section_confusion.tsv, when the tree has a design table
 DESIGN="${TREE_FILE%.tree}.design.tsv"

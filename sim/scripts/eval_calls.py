@@ -218,6 +218,7 @@ def main():
     ap.add_argument("--cells-per-page", type=int, default=4)
     ap.add_argument("--max-cells-plot", type=int, default=0)
     ap.add_argument("--conf-unit", choices=["cells", "bp"], default=None, help=argparse.SUPPRESS)  # ignored: all units are made
+    ap.add_argument("--detection-only", action="store_true", help="stop after section_confusion.tsv / section_coverage.tsv (no plots, no summary): for eval_detection.py")
     ap.add_argument("--seg-min-frac", type=float, default=0.75,
                     help="confusion_segments_*.pdf: a bin counts toward a segment only if at least this fraction of "
                          "its aligned truth (per cell and haplotype) lies in that segment (0 = every overlap counts)")
@@ -414,6 +415,9 @@ def main():
         pd.concat([c.assign(bins=b) for b, (c, _) in tables.items()], ignore_index=True)[
             ["bins", "hap", "seg", "level", "true_cn", "pred_cn", "cells", "cell_bins", "bp"]].to_csv(
             os.path.join(a.out_dir, "section_confusion.tsv"), sep="\t", index=False)
+        if a.detection_only:
+            print(f"detection-only: wrote {a.out_dir}/section_confusion.tsv and section_coverage.tsv (no plots, no summary)")
+            return
         for old in ("confusion_segments_cn.pdf", "confusion_segments_events.pdf"):   # names before the 4 variants
             if os.path.exists(os.path.join(a.out_dir, old)):
                 os.remove(os.path.join(a.out_dir, old))
