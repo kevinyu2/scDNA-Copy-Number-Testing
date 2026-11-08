@@ -77,11 +77,13 @@ if [[ -n ${CHISEL_HMM:-} ]]; then
         die "env ${HMM_CHISEL_ENV}: chisel_calling has no --hmmnoise (apply the chisel_hmm patch with the HMM counting noise, or --hmmnoise legacy)"
     fi                                                   # an older fork without the option: its HMM is the legacy one
 fi
+HMM_SELECT=${CHISEL_HMM_SELECT:-auto}
+if [[ ${HMM_SELECT} == auto ]]; then if [[ ${CLONER:-false} == true ]]; then HMM_SELECT=bic; else HMM_SELECT=null; fi; fi
 if [[ ${ORACLE} == true ]]; then
     chisel_calling -h 2>/dev/null | grep -q -- "--clusters" || die "env ${HMM_CHISEL_ENV}: chisel_calling has no --clusters (apply the chisel_hmm patch with Caller --clusters)"
     HMM_ARGS=(--clusters "${RUN_DIR}/oracle/clusters.tsv")
 elif [[ ${CHISEL_HMM} == *-* ]]; then
-    HMM_ARGS=(--hmmmink "${CHISEL_HMM%-*}" --hmmmaxk "${CHISEL_HMM#*-}" --hmmselect "${CHISEL_HMM_SELECT:-bic}")
+    HMM_ARGS=(--hmmmink "${CHISEL_HMM%-*}" --hmmmaxk "${CHISEL_HMM#*-}" --hmmselect "${HMM_SELECT}")
 else
     HMM_ARGS=(--hmmk "${CHISEL_HMM}")
 fi

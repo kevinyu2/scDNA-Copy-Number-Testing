@@ -178,7 +178,7 @@ CHISEL_USE_NEW=false
 # combo.tsv of the same run without --hmm, which must exist; folders chisel_<bins>_hmm<K>/<phaser>/.
 HMM_CHISEL_ENV="/n/fs/ragr-research/users/ky8418/miniconda3/envs/chisel_hmmenv"
 CHISEL_HMM=""                 # set per run with --hmm (K, or MIN-MAX to let the criterion choose)
-CHISEL_HMM_SELECT="bic"       # bic | silhouette (only matters with a MIN-MAX range)
+CHISEL_HMM_SELECT="auto"   # auto: null without the cloner, bic with it; or bic / silhouette / null (a MIN-MAX range only)
 CHISEL_HMM_RESTARTS=10        # restarts per K
 CHISEL_HMM_EXTRA=""           # any other chisel_calling --hmm* options, e.g. "--hmmtransmat fixed --hmmdecode viterbi"
 CHISEL_ORACLE_SPLIT=0         # set per run with --oracle-split P: boundary bins (< P% in one oracle cluster) get a
