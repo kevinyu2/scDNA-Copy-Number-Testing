@@ -188,6 +188,14 @@ CHISEL_MODE=pseudobulk        # the fork's mode for --hmm / --oracle runs and --
                               #                from pooled reads (the fork's default); folders ..._pb/ (re-clones ..._pbclone/)
                               #   divisive   = divisive cloning, per-cell HMM, majority vote; ..._div/ (..._divclone/)
                               #   legacy     = CHISEL's own cloning; no suffix (the folders made before these modes)
+# Per-cell HMM (the chisel_hmm fork's chisel/CellHMM.py; run_pipeline.sh --cellhmm K): one HMM over every cell and
+# bin, emitting (RDR, BAF) per cell-bin, K states shared by all cells with learned means (initialised from the
+# copy-number grid by constrained k-means), fixed transitions, uniform start. Like --hmm it re-does only the calling
+# on the combo.tsv of the same run without it; no cloner. Folders chisel_<bins>_cellhmm<K>/<phaser>/.
+CHISEL_CELLHMM=""             # set per run with --cellhmm K
+CHISEL_CELLHMM_STAY=0.99      # probability of staying in a state from one bin to the next in a cell (fixed a priori)
+CHISEL_CELLHMM_EXTRA=""       # any other CellHMM options, e.g. "--baf binomial --maxcn 8 --noise shared --fit-transitions"
+                              # (recorded in the run's source_run.txt, not in the folder name)
 CHISEL_HMM_NOISE=counting     # HMM emission noise (set per run with --hmmnoise): counting = known read-count variances
                               # + shared overdispersion and extra variance (the fork's default; folders ..._hmm<K>_cn...);
                               # legacy = per-state variances (no suffix: the HMM folders made before)

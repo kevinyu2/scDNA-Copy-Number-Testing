@@ -47,7 +47,7 @@ case ${CALLER} in
                # no cloner = no CORRECTED_HAP_CN: score the per-cell calls
                [[ -s $(call_dir chisel "${PHASER}")/clones/mapping.tsv ]] || CHISEL_EVAL_CN=raw
                if [[ ${CHISEL_PHASER_BINS:-false} == true ]]; then
-                   LABEL="CHISEL (${PHASER}, ${PHASER} bins ${CHISEL_PHASER_PER_CELL} SNP reads/cell, ${CHISEL_EVAL_CN})"
+                   LABEL="CHISEL (${PHASER}, ${PHASER} bins ${CHISEL_PHASER_PER_CELL} SNP reads/cell${CHISEL_CELLHMM:+, per-cell HMM K=${CHISEL_CELLHMM}}, ${CHISEL_EVAL_CN})"
                elif [[ ${CHISEL_VARBINS:-false} == true ]]; then
                    LABEL="CHISEL (${PHASER}, variable bins, ${CHISEL_VB_MINSNPREADSPERCELL} SNP reads/cell, ${CHISEL_EVAL_CN})"
                else

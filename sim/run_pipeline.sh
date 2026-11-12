@@ -33,6 +33,12 @@ Usage: ./run_pipeline.sh --phaser P [--caller C] [options]
                  HMM_CHISEL_ENV) on the combo.tsv of the same run without --hmm, with exactly K
                  clusters, or MIN-MAX to let CHISEL_HMM_SELECT choose; needs --from call.
                  Folders chisel_<bins>_hmm<K>/ (e.g. --phaserbins 8 --hmm 7: chisel_pbins8_hmm7/)
+  --cellhmm K    CHISEL only: re-do the calling with the per-cell HMM (chisel_hmm's chisel/CellHMM.py,
+                 HMM_CHISEL_ENV) on the combo.tsv of the same run without it: one HMM over every cell and
+                 bin, K states shared by all cells with learned (RDR, BAF) means started from the
+                 copy-number grid, fixed transitions (CHISEL_CELLHMM_STAY), uniform start; every cell-bin
+                 gets a state, labelled a|b. Never a cloner. Needs --from call. Options: CHISEL_CELLHMM_EXTRA.
+                 Folders chisel_<bins>_cellhmm<K>/ (e.g. --phaserbins 8 --cellhmm 12: chisel_pbins8_cellhmm12/)
   --oracle       CHISEL only, for diagnosis: re-do the calling of the run without --oracle with the
                  oracle bin clusters (same copy numbers in the same cells = one cluster, from
                  eval/truth_hg38.tsv; scripts/oracle_clusters.py) instead of computed ones; needs
@@ -119,6 +125,7 @@ while (( $# )); do
         --varbins) VARBINS=${2:?--varbins needs a value}; shift 2 ;;
         --ugpbins|--phaserbins) UGPBINS=${2:?$1 needs a value}; shift 2 ;;
         --hmm)     HMMK=${2:?--hmm needs a value}; shift 2 ;;
+        --cellhmm) CELLHMMK=${2:?--cellhmm needs a number of states}; shift 2 ;;
         --oracle)  ORACLE=true; shift ;;
         --oracle-split) ORACLE=true; ORACLE_SPLIT=${2:?--oracle-split needs a percentage}; shift 2 ;;
         --cloning) CLONING=${2:?--cloning needs a method}; shift 2 ;;
@@ -209,6 +216,16 @@ if [[ -n ${HMMK:-} ]]; then
     CHISEL_HMM=${HMMK}
     note "HMM: ${HMMK} clusters, on the combo.tsv of $(chisel_base_dir "${PHASER}")"
 fi
+if [[ -n ${CELLHMMK:-} ]]; then
+    [[ ${CALLER} == chisel ]] || die "--cellhmm needs --caller chisel"
+    [[ ${CELLHMMK} =~ ^[0-9]+$ ]] && (( CELLHMMK >= 1 )) || die "--cellhmm needs a number of states K >= 1, e.g. 12"
+    [[ -z ${HMMK:-} && ${ORACLE:-false} != true ]] || die "use only one of --cellhmm, --hmm, --oracle"
+    [[ ${CHISEL_CLONER:-false} != true && ${RECLONE:-false} != true && -z ${CLONING:-} ]] \
+        || die "--cellhmm never runs a cloner (no --cloner, --reclone or --cloning)"
+    [[ -z ${HMMNOISE:-} ]] || die "--hmmnoise goes with --hmm; the per-cell HMM always uses counting noise"
+    CHISEL_CELLHMM=${CELLHMMK}
+    note "Per-cell HMM: ${CELLHMMK} states, stay ${CHISEL_CELLHMM_STAY:-0.99}${CHISEL_CELLHMM_EXTRA:+, options: ${CHISEL_CELLHMM_EXTRA}}, on the combo.tsv of $(chisel_base_dir "${PHASER}")"
+fi
 if [[ ${ORACLE:-false} == true ]]; then
     [[ ${CALLER} == chisel ]] || die "--oracle needs --caller chisel"
     [[ -z ${HMMK:-} ]] || die "use either --hmm or --oracle"
@@ -248,7 +265,7 @@ elif [[ ${CALLER} == chisel ]] && { [[ -n ${CHISEL_HMM:-} ]] || [[ ${CHISEL_ORAC
 fi
 PIN_C=$(to_bp "${CHISEL_BINSIZE}")
 PIN_H=$(to_bp "${HS_BINSIZE}")
-PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_MODE=${CHISEL_MODE:-pseudobulk},PIN_CHISEL_HMM_NOISE=${CHISEL_HMM_NOISE:-counting},PIN_CHISEL_RECLONE=${CHISEL_RECLONE:-false},PIN_CHISEL_CLONER=${CHISEL_CLONER:-false},PIN_CHISEL_CELL_PERMQ=${CHISEL_CELL_PERMQ:-90},PIN_CHISEL_CELL_FLOORMARGIN=${CHISEL_CELL_FLOORMARGIN:-1.2},PIN_CHISEL_CELL_MINSIZE=${CHISEL_CELL_MINSIZE:-30}"
+PINS="PIN_CHISEL_BINSIZE=${PIN_C},PIN_HS_BINSIZE=${PIN_H},PIN_CHISEL_VARBINS=${CHISEL_VARBINS:-false},PIN_CHISEL_VB_MSR=${CHISEL_VB_MINSNPREADSPERCELL:-25},PIN_CHISEL_PHASER_BINS=${CHISEL_PHASER_BINS:-false},PIN_CHISEL_PHASER_PER_CELL=${CHISEL_PHASER_PER_CELL:-100},PIN_CHISEL_HMM=${CHISEL_HMM:-none},PIN_CHISEL_CELLHMM=${CHISEL_CELLHMM:-none},PIN_CHISEL_ORACLE=${CHISEL_ORACLE:-false},PIN_CHISEL_ORACLE_SPLIT=${CHISEL_ORACLE_SPLIT:-0},PIN_CHISEL_MODE=${CHISEL_MODE:-pseudobulk},PIN_CHISEL_HMM_NOISE=${CHISEL_HMM_NOISE:-counting},PIN_CHISEL_RECLONE=${CHISEL_RECLONE:-false},PIN_CHISEL_CLONER=${CHISEL_CLONER:-false},PIN_CHISEL_CELL_PERMQ=${CHISEL_CELL_PERMQ:-90},PIN_CHISEL_CELL_FLOORMARGIN=${CHISEL_CELL_FLOORMARGIN:-1.2},PIN_CHISEL_CELL_MINSIZE=${CHISEL_CELL_MINSIZE:-30}"
 # An --hmm or --oracle run re-does only the calling on the combo.tsv of the plain CHISEL run. When the route
 # starts before the call stage, or that combo.tsv does not exist yet, the plain run is queued first (pinned
 # without --hmm/--oracle, so it writes its own folder), and for --oracle also its eval (the lifted truth).
@@ -260,7 +277,7 @@ if [[ ${CALLER} == chisel ]] && chisel_recall && runs call; then
         BASE_FIRST=true
     fi
     if [[ ${BASE_FIRST} == true ]]; then
-        BASE_PINS=$(echo "${PINS}" | sed -E 's/PIN_CHISEL_HMM=[^,]*/PIN_CHISEL_HMM=none/; s/PIN_CHISEL_ORACLE=[^,]*/PIN_CHISEL_ORACLE=false/; s/PIN_CHISEL_ORACLE_SPLIT=[^,]*/PIN_CHISEL_ORACLE_SPLIT=0/; s/PIN_CHISEL_RECLONE=[^,]*/PIN_CHISEL_RECLONE=false/')
+        BASE_PINS=$(echo "${PINS}" | sed -E 's/PIN_CHISEL_HMM=[^,]*/PIN_CHISEL_HMM=none/; s/PIN_CHISEL_CELLHMM=[^,]*/PIN_CHISEL_CELLHMM=none/; s/PIN_CHISEL_ORACLE=[^,]*/PIN_CHISEL_ORACLE=false/; s/PIN_CHISEL_ORACLE_SPLIT=[^,]*/PIN_CHISEL_ORACLE_SPLIT=0/; s/PIN_CHISEL_RECLONE=[^,]*/PIN_CHISEL_RECLONE=false/')
         note "The plain CHISEL run $(chisel_base_dir "${PHASER}") is queued first$([[ ${CHISEL_ORACLE:-false} == true ]] && echo ", with its eval (the lifted truth for the oracle)")"
     fi
 fi
@@ -269,6 +286,7 @@ if [[ -n ${CALLER} ]]; then
     CALLER_BP=${CALLER_BP%%_divclone}
     CALLER_BP=${CALLER_BP%%_pbclone}
     CALLER_BP=${CALLER_BP%%_hmm*}            # the bins, without an HMM run's suffix
+    CALLER_BP=${CALLER_BP%%_cellhmm*}
     CALLER_BP=${CALLER_BP%%_oracle*}
     case ${CALLER_BP} in
         var*)    note "${CALLER} bins: variable (${CALLER_BP#var} SNP reads per cell)" ;;
@@ -292,8 +310,8 @@ if [[ -z ${AFTER} ]]; then
         need "$(clone_base_dir "${PHASER}")/calls/calls.tsv" "calls of the legacy run" \
             "run it first: the same command with --mode legacy and without --reclone"
     elif chisel_recall && runs call && [[ ${BASE_FIRST} != true ]]; then
-        need "$(chisel_base_dir "${PHASER}")/combo/combo.tsv" "combo.tsv of the run without --hmm/--oracle" \
-            "run it first: the same command without --hmm/--oracle (--from call)"
+        need "$(chisel_base_dir "${PHASER}")/combo/combo.tsv" "combo.tsv of the run without --hmm/--cellhmm/--oracle" \
+            "run it first: the same command without --hmm/--cellhmm/--oracle (--from call)"
         [[ ${CHISEL_ORACLE:-false} != true ]] || need "${EVAL_TRUTH}" "lifted truth" \
             "run any eval of this project first (it writes ${EVAL_TRUTH})"
     elif runs phase || { runs call && [[ ${CALLER} == chisel ]]; }; then
@@ -384,8 +402,13 @@ if runs call; then
                 fi
                 unset SUBMIT_PINS
             fi
-            J=$(submit call_chisel_hmm "${PREV}" scripts/call_chisel_hmm.sh)
-            SUMMARY+=("call (chisel $([[ ${CHISEL_ORACLE:-false} == true ]] && echo "oracle clusters" || echo "HMM ${CHISEL_HMM}")): ${J}")
+            if [[ -n ${CHISEL_CELLHMM:-} ]]; then
+                J=$(submit call_chisel_cellhmm "${PREV}" scripts/call_chisel_cellhmm.sh)
+                SUMMARY+=("call (chisel per-cell HMM, K = ${CHISEL_CELLHMM}): ${J}")
+            else
+                J=$(submit call_chisel_hmm "${PREV}" scripts/call_chisel_hmm.sh)
+                SUMMARY+=("call (chisel $([[ ${CHISEL_ORACLE:-false} == true ]] && echo "oracle clusters" || echo "HMM ${CHISEL_HMM}")): ${J}")
+            fi
           else
             # The barcoded BAM needs only the cell BAMs, so it runs alongside phasing
             P=${PREP:-$(submit chisel_prep "${AFTER}" scripts/chisel_prep.sh)}
