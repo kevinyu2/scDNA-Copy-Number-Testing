@@ -33,7 +33,7 @@ set -euo pipefail
 
 SCRIPTS="$(pwd)/scripts"
 CALL_OUT=$(caller_output "${CALLER}" "${PHASER}")
-OUT_DIR=$(eval_out_dir "${PHASER}" "${CALLER}")
+OUT_DIR=$(eval_out_dir "${PHASER}" "${CALLER}")${EVAL_SUFFIX:-}
 TRUTH="${EVAL_TRUTH}"
 CALLS_STD="${OUT_DIR}/calls.tsv"
 # LEVELS: which haplotype orientations are meaningful for the caller.
@@ -43,7 +43,7 @@ CALLS_STD="${OUT_DIR}/calls.tsv"
 LEVELS=all
 case ${CALLER} in
     hiscanner) LABEL="HiScanner (${PHASER}, $(caller_binsize hiscanner) bp bins)"; LEVELS=allele_specific ;;
-    chisel)    CHISEL_EVAL_CN="${CHISEL_EVAL_CN:-corrected}"
+    chisel)    CHISEL_EVAL_CN="${EVAL_CN_OVERRIDE:-${CHISEL_EVAL_CN:-corrected}}"
                # no cloner = no CORRECTED_HAP_CN: score the per-cell calls
                [[ -s $(call_dir chisel "${PHASER}")/clones/mapping.tsv ]] || CHISEL_EVAL_CN=raw
                if [[ ${CHISEL_PHASER_BINS:-false} == true ]]; then
