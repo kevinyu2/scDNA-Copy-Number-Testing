@@ -18,8 +18,11 @@
 #   calls/cellhmm.tsv   EM history, BIC, per state: label, initial grid point, learned RDR and BAF means, share
 #   calls/cells.tsv     per cell: mean copy number, log-likelihood, noise, fraction of bins not 1|1
 #   calls/log           the run's messages
+#   calls/cellhmm_states.pdf / .png   RDR x BAF of the cell-bins against the states' means, single cells along the
+#                       genome (scripts/plot_cellhmm.py, run in EVAL_ENV; a failure there does not fail the job)
 
 LOG_TAG=call_chisel_cellhmm
+SCRIPTS="$(pwd)/scripts"      # jobs run from sim/
 source "${CONFIG_FILE:-./config.sh}"
 source ./scripts/common.sh
 PHASER=${PHASER:-ugp}
@@ -63,4 +66,6 @@ python2.7 -B -m chisel.CellHMM combo/combo.tsv -K "${CHISEL_CELLHMM}" --stay "${
 [[ $(grep -vc '^#' calls/calls.tsv 2>/dev/null || true) -gt 0 ]] || die "no calls in calls/calls.tsv"
 note "States (calls/cellhmm.tsv):"
 sed 's/^/    /' calls/cellhmm.tsv >&2
+conda_switch activate "${EVAL_ENV}" && python3 -B "${SCRIPTS}/plot_cellhmm.py" --run . >&2 \
+    || note "WARNING: plot_cellhmm.py failed (calls are fine); rerun: python3 scripts/plot_cellhmm.py --run ${RUN_DIR}"
 note "Done: ${RUN_DIR}"

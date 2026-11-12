@@ -30,6 +30,9 @@ note() { echo "[${LOG_TAG:-pipeline}] $*" >&2; }
 if [[ -n ${PIN_CHISEL_CELLHMM:-} ]]; then                # "none" = pinned as a run without the per-cell HMM
     [[ ${PIN_CHISEL_CELLHMM} == none ]] && CHISEL_CELLHMM="" || CHISEL_CELLHMM=${PIN_CHISEL_CELLHMM}
 fi
+if [[ -n ${PIN_CHISEL_BINCELLHMM:-} ]]; then             # "none" = pinned as a run without the bin-cell HMM
+    [[ ${PIN_CHISEL_BINCELLHMM} == none ]] && CHISEL_BINCELLHMM="" || CHISEL_BINCELLHMM=${PIN_CHISEL_BINCELLHMM}
+fi
 if [[ -n ${PIN_CHISEL_HMM:-} ]]; then                    # "none" = pinned as a run without the HMM
     [[ ${PIN_CHISEL_HMM} == none ]] && CHISEL_HMM="" || CHISEL_HMM=${PIN_CHISEL_HMM}
 fi
@@ -65,6 +68,7 @@ caller_binsize() {                                   # caller -> bin size in bp
                    fi
                    b+="${CHISEL_HMM:+_hmm${CHISEL_HMM}}"               # HMM runs: chisel_<bins>_hmm<K>/
                    b+="${CHISEL_CELLHMM:+_cellhmm${CHISEL_CELLHMM}}"   # per-cell HMM runs (never a cloner): chisel_<bins>_cellhmm<K>/
+                   b+="${CHISEL_BINCELLHMM:+_bincellhmm${CHISEL_BINCELLHMM}}"   # RunpengLuo's bin-cell HMM: chisel_<bins>_bincellhmm<K>/
                    if [[ -n ${CHISEL_HMM:-} && ${CHISEL_HMM_NOISE:-counting} == counting ]]; then
                        b+="_cn"                                          # counting-noise HMM: ..._hmm<K>_cn...; legacy noise: none
                    fi
@@ -122,7 +126,7 @@ SCAN2_DIR="${PROJECT_DIR}/scan2_out"
 UGP_PHASED_VCF="${UGP_DIR}/out/phase/phased_het_snps.vcf.gz"
 ugp_bb_file() { echo "${UGP_DIR}/out/bb/MSR$1/bulk/bb.tsv.gz"; }   # bins of UGP pseudobulk/percell mode, per min_snp_reads
 chisel_env() {   # conda env of the CHISEL run: the fork for its new features, else the original
-    if [[ -n ${CHISEL_HMM:-} || -n ${CHISEL_CELLHMM:-} || ${CHISEL_ORACLE:-false} == true || ${CHISEL_RECLONE:-false} == true ]]; then
+    if [[ -n ${CHISEL_HMM:-} || -n ${CHISEL_CELLHMM:-} || -n ${CHISEL_BINCELLHMM:-} || ${CHISEL_ORACLE:-false} == true || ${CHISEL_RECLONE:-false} == true ]]; then
         echo "${HMM_CHISEL_ENV:?HMM_CHISEL_ENV is not set in config.sh}"
     elif [[ ${CHISEL_VARBINS:-false} == true || ${CHISEL_PHASER_BINS:-false} == true || ${CHISEL_USE_NEW:-false} == true ]]; then
         echo "${NEW_CHISEL_ENV:?NEW_CHISEL_ENV is not set in config.sh}"
@@ -214,8 +218,8 @@ rel_link() {   # rel_link TARGET LINK: a symlink with a relative target, so movi
         || rel=$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "${target}" "$(dirname "${link}")")
     ln -sfn "${rel}" "${link}"
 }
-chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_CELLHMM=""; CHISEL_ORACLE=false; CHISEL_ORACLE_SPLIT=0; CHISEL_RECLONE=false; call_dir chisel "$1" ); }   # phaser -> the same CHISEL run without --hmm/--oracle (its combo.tsv feeds them)
-chisel_recall() { [[ -n ${CHISEL_HMM:-} || -n ${CHISEL_CELLHMM:-} || ${CHISEL_ORACLE:-false} == true ]]; }   # an HMM, per-cell HMM or oracle run: only the calling, on the base run's combo.tsv
+chisel_base_dir() { ( CHISEL_HMM=""; CHISEL_CELLHMM=""; CHISEL_BINCELLHMM=""; CHISEL_ORACLE=false; CHISEL_ORACLE_SPLIT=0; CHISEL_RECLONE=false; call_dir chisel "$1" ); }   # phaser -> the same CHISEL run without --hmm/--oracle (its combo.tsv feeds them)
+chisel_recall() { [[ -n ${CHISEL_HMM:-} || -n ${CHISEL_CELLHMM:-} || -n ${CHISEL_BINCELLHMM:-} || ${CHISEL_ORACLE:-false} == true ]]; }   # an HMM, per-cell HMM or oracle run: only the calling, on the base run's combo.tsv
 clone_base_dir() { ( CHISEL_RECLONE=false; CHISEL_MODE=legacy; call_dir chisel "$1" ); }   # phaser -> the same run, legacy (its calls feed --reclone)
 chisel_reclone() { [[ ${CHISEL_RECLONE:-false} == true ]]; }          # --reclone: only the cloning, on that run's calls
 split_test_flags() {  # the fork's divisive split-test options (chisel_calling / chisel_cloning --permq --floormargin)

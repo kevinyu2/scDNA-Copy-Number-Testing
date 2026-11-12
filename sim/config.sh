@@ -196,6 +196,13 @@ CHISEL_CELLHMM=""             # set per run with --cellhmm K
 CHISEL_CELLHMM_STAY=0.99      # probability of staying in a state from one bin to the next in a cell (fixed a priori)
 CHISEL_CELLHMM_EXTRA=""       # any other CellHMM options, e.g. "--baf binomial --maxcn 8 --noise shared --fit-transitions"
                               # (recorded in the run's source_run.txt, not in the folder name)
+# RunpengLuo's bin-cell HMM (github.com/RunpengLuo/chisel, branch feat/bin_cell_hmm; run_pipeline.sh --bincellhmm K):
+# the same per-cell model with plain Gaussian emissions (one variance per state), Viterbi decoding, and every cell's
+# copy numbers from CHISEL's own per-cell calling (base ploidy by BIC). Run from a clone of that branch; no cloner.
+# Folders chisel_<bins>_bincellhmm<K>/<phaser>/. Uses CHISEL_CELLHMM_STAY, CHISEL_MAXPLOIDY, CHISEL_JOBS, CHISEL_SEED.
+BINCELLHMM_REPO="/n/fs/ragr-research/users/ky8418/chisel_bincellhmm"   # git clone -b feat/bin_cell_hmm https://github.com/RunpengLuo/chisel.git
+CHISEL_BINCELLHMM=""          # set per run with --bincellhmm K
+CHISEL_BINCELLHMM_EXTRA=""    # other hmm_caller.py options, e.g. "--hmm-restarts 20 --hmm-maxcn 8 --hmm-orient bin"
 CHISEL_HMM_NOISE=counting     # HMM emission noise (set per run with --hmmnoise): counting = known read-count variances
                               # + shared overdispersion and extra variance (the fork's default; folders ..._hmm<K>_cn...);
                               # legacy = per-state variances (no suffix: the HMM folders made before)
