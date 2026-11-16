@@ -1,119 +1,52 @@
-## Simulated chr1 scDNA benchmark: phasers x CN callers
+# Simulated scDNA benchmark
 
-Simulate ~0.1x single cells + a 30x matched bulk from the HG002 chr1 haplotypes,
-phase germline SNPs, call haplotype-specific copy numbers, and score the calls
-against the simulator's truth.
+Simulates low-coverage single cells (about 0.1x) and a 30x bulk from the HG002 chr1 haplotypes along a clone tree with planted copy-number events, then phases SNPs, calls copy numbers and scores the calls against the truth. Every stage is a SLURM job; the launchers only submit.
 
-### Layout
+## Setup
 
-```
-sim/
-  config.sh          every setting
-  run_sim.sh         stage 0: simulate cells (SLURM array) + bulk
-  run_pipeline.sh    phase -> call -> eval for one phaser/caller route
-  scripts/           everything the two launchers submit (never called directly)
-    common.sh          derived paths, route table, log helpers
-    sim_cells.sh, sim_bulk.sh, scDNA_sim.py
-    phase_scan2.sh, phase_ugp.sh, snakefile.phasing
-    phase_perfect.sh, perfect_phase.py, perfect_ad.py   (--phaser perfect)
-    call_hiscanner.sh, chisel_prep.sh, call_chisel.sh
-    eval.sh, lift_truth.py, standardize_calls.py, eval_calls.py
-```
+- Conda envs, set in `config.sh`: `scdna_pipeline` (simulation, SCAN2, HiScanner, evaluation), `genotyping-env` (UGP) and the CHISEL envs (Python 2.7; `HMM_CHISEL_ENV` is the [chisel_hmm](https://github.com/kevinyu2/chisel_hmm) fork).
+- One config per tree: copy `config.sh`, change `PROJECT_DIR` and `TREE_FILE`, and pass it as `CONFIG_FILE=$PWD/config_<tree>.sh` to every launcher.
 
-Always run from `sim/` on the login node; the launchers only submit jobs.
-Jobs source `config.sh` when they start, so edits reach queued jobs too.
+## Running
 
-### Usage
+Run from `sim/` on the login node. Each launcher prints its last job ID, for `--after`.
 
 ```bash
-./run_sim.sh                                          # simulate only
-./run_sim.sh -- --phaser ugp --caller chisel          # simulate, then the whole route
-./run_pipeline.sh --phaser ugp --caller chisel        # phase -> call -> eval
-./run_pipeline.sh --phaser ugp --caller chisel --from call
-./run_pipeline.sh --phaser scan2 --caller hiscanner --only eval
-./run_pipeline.sh --phaser ugp --to phase             # phasing only, no caller needed
-./run_pipeline.sh --list                              # implemented routes
-./run_pipeline.sh ... --dry-run                       # print the sbatch commands
+./run_sim.sh                                                          # simulate
+./run_pipeline.sh --phaser ugp --caller chisel --phaserbins 8          # phase -> call -> eval
+./run_pipeline.sh --phaser ugp --caller chisel --phaserbins 8 --from call --hmm 24-48 --after <job>
+./run_pipeline.sh --phaser ugp --caller chisel --phaserbins 8 --from call --cellhmm 6
+EVAL_DETECTION_ONLY=true ./run_pipeline.sh --phaser ugp --caller chisel --phaserbins 8 --only eval
 ```
 
-Both launchers print job IDs on stdout (notes go to stderr), so stages can be chained:
-
-```bash
-SIM=$(./run_sim.sh)
-./run_pipeline.sh --phaser scan2 --caller hiscanner --binsize 500kb --after "$SIM"
-./run_pipeline.sh --phaser ugp   --caller chisel    --binsize 2Mb   --after "$SIM"
-PERF=$(./run_pipeline.sh --phaser perfect --to phase --after "$SIM")      # one run for both callers
-./run_pipeline.sh --phaser perfect --caller hiscanner --from call --binsize 500kb --after "$PERF"
-./run_pipeline.sh --phaser perfect --caller chisel    --from call --binsize 2Mb   --after "$PERF"
-```
-
-Implemented routes: `scan2 -> hiscanner`, `ugp -> chisel`, `perfect -> hiscanner`,
-`perfect -> chisel`. Asking for any other
-pair prints why it isn't wired up yet. Starting partway checks that the earlier
-stage's output exists (pass `--after JOBID` if it's still being made).
-
-### Outputs (under PROJECT_DIR)
-
-| stage | where |
+| option | what it does |
 |---|---|
-| simulation | `sim/{bams,bulk,cn_mat,dwgsim}` |
-| phase | `scan2_out/`, `ugp/out/phase/phased_het_snps.vcf.gz`, or `perfect/` |
-| call | `<caller>_<binsize bp>/<phaser>/`, e.g. `chisel_5000000/ugp/`, `hiscanner_500000/scan2/` (barcoded BAM shared in `chisel/prep/`) |
-| eval | `eval/<phaser>_<caller>_<binsize bp>/`, e.g. `eval/ugp_chisel_5000000/` (lifted truth shared: `eval/truth_hg38.tsv`) |
+| `--phaser scan2\|ugp\|perfect` | phasing: SCAN2, UGP, or the true phase |
+| `--caller chisel\|hiscanner` | copy-number caller |
+| `--from`, `--to`, `--only` | stages: `phase`, `call`, `eval` |
+| `--phaserbins N` | the phaser's variable-length bins, N SNP-covering reads per cell per bin |
+| `--hmm K` or `--hmm A-B` | re-call with HMM bin clustering, K fixed or chosen in A..B |
+| `--cloner` | with `--hmm`: also group cells into clones |
+| `--oracle` | re-call with the true bin clusters |
+| `--cellhmm K` | re-call with the per-cell HMM |
+| `--bincellhmm K` | re-call with RunpengLuo's bin-cell HMM (needs `BINCELLHMM_REPO`) |
+| `--after JOBS` | wait for these jobs |
+| `--dry-run` | print the jobs without submitting |
 
-Bin size comes from `CHISEL_BINSIZE` / `HS_BINSIZE` in `config.sh`, or `--binsize` per run
-(`./run_pipeline.sh --phaser ugp --caller chisel --from call --binsize 1Mb`). It is pinned
-when you submit, so editing `config.sh` afterwards doesn't affect queued jobs.
+The re-call options reuse the `combo.tsv` of the plain run (same command without them), so run that first and pass its job ID with `--after`. Eval settings: `EVAL_DETECTION_ONLY=true` (detection heatmap only, faster), `EVAL_CN_OVERRIDE=raw` (score per-cell calls of a cloned run), `EVAL_SUFFIX=_raw` (eval folder suffix).
 
-Eval outputs: `summary.txt` (accuracy + gain/normal/loss TP/TN/FP/FN), `confusion_segments_{cn,events}_<variant>.pdf`
-(true vs called CN, and gain/normal/loss) in five variants:
-`_bp`, `_cells` (one majority call per cell x segment), and `_bp_min75` / `_cells_min75` / `_bins_min75` (only bins at
-least 75% inside the segment, `EVAL_SEG_MIN_FRAC`; `_bins` counts each such bin once per cell) (+ `section_confusion.tsv`, `section_coverage.tsv`), `per_cell_tracks{,_bin,_ideal}.pdf`, and `calls.tsv` (the
-converted calls that were scored). For HiScanner only the allele-specific level is
-shown (`per_cell_tracks_ideal.pdf`).
+## Algorithms
 
-Every caller's output is converted by `standardize_calls.py` to one table
-(`calls.tsv` in the eval folder: cell, chrom, start, end, CN_A, CN_B + extras), so
-`eval_calls.py` is the same for every caller. Adding a caller = a `call_<x>.sh`,
-a converter in `standardize_calls.py`, and an entry in `ROUTES` in `scripts/common.sh`.
+- **Simulation**: every cell's haplotypes are edited along the tree, then sequenced at about 0.1x with allele dropout, which the truth does not include.
+- **Phasers**: SCAN2 and UGP phase het SNPs from the bulk (UGP can also make bins); `perfect` uses every true het SNP and its true phase.
+- **Variable-length bins**: windows are merged until each bin has N SNP-covering reads per cell on average; smaller N gives shorter, noisier bins.
+- **Plain CHISEL**: clusters bins with k-medians across all cells, calls copy numbers per cluster and cell, and corrects them by clone.
+- **HMM**: clusters bins with an HMM along the genome whose variances come from read counts; a K range is chosen against a shifted null (BIC with the cloner).
+- **Oracle**: the true bin clusters, an upper bound for the clustering step.
+- **Cloner**: splits cells top-down on RDR and BAF, and calls every clone from its pooled reads.
+- **Per-cell HMMs**: every cell gets its own state in every bin, the cells sharing K (RDR, BAF) states.
+- **Scoring**: the truth is lifted to hg38 and onto the bins. Detection is the share of carrier cell-bins whose call shows each planted event (allele-specific), per subclone size x event size.
 
-### Perfect phasing (`--phaser perfect`)
+## Outputs
 
-Tests the callers without phasing error. `phase_perfect.sh` reads the true het SNPs
-off the HG002 mat/pat assemblies' alignments to hg38 (the PAFs eval.sh caches in
-`EVAL_LIFT_DIR`): a position counts when exactly one haplotype differs from hg38, both
-align there exactly once, and neither has an indel within `PERFECT_INDEL_PAD` bp.
-GT is maternal|paternal.
-
-- `perfect/phased_hets.vcf.gz` (sample `phasedgt`): the phase, used by CHISEL and HiScanner
-- `perfect/hiscanner_input/`: laid out like a SCAN2 folder for HiScanner.
-  `gatk/hc_raw.mmq60.vcf.gz` holds per-cell allele depths at the true hets
-  (bcftools mpileup, MAPQ >= `PERFECT_MIN_MAPQ`); `shapeit/phased_hets.vcf.gz` links to the phase.
-
-It uses every true het (more than any phaser finds), so it is an upper bound on what
-better phasing *and* SNP discovery could give.
-
-### HiScanner notes
-
-- Reads must be at least as long as the mappability track's k-mer (`SIM_READ_LEN` >=
-  `HS_MAPPABILITY_K`, 150 for the hg38 track); `call_hiscanner.sh` checks this.
-- BIC-seq normalization: HiScanner hard-codes `-p=0.0001` (fraction of positions used to
-  fit the GC/mappability model), which leaves ~15 reads in the fit at 0.1x on one
-  chromosome. `call_hiscanner.sh` puts a copy of HiScanner's Snakefile in the run folder
-  (HiScanner prefers `./Snakefile`) with `-p=HS_NORM_P -l=HS_NORM_READLEN -s=HS_NORM_FRAGSIZE`.
-- Segmentation: `HS_LAMBDA=4` (HiScanner's 16 misses 2-5 Mb single-copy events at 0.1x).
-  `HS_SEG_NOSCALE` (default false = HiScanner's behavior): BIC-seq multiplies lambda per cell
-  by a noise factor that high-copy ecDNA inflates ~6x or more, which can hide smaller events in
-  those cells. With true, `call_hiscanner.sh` points HiScanner's `bicseq_seg` at a wrapper that
-  adds `--noscale`.
-  All lambdas in `HS_LAMBDA_RANGE` are segmented, so trying another lambda needs only
-  `HS_STEPS="cnv"`; changing `HS_SEG_NOSCALE` needs `HS_STEPS="segment cnv"`.
-- HiScanner's `CN_A|CN_B` is major|minor (BAF is mirrored per bin), so its eval reports
-  only the allele-specific level (`eval_calls.py --levels allele_specific`).
-
-### Setup notes
-
-- Conda envs: `scdna_pipeline` (SCAN2, HiScanner, dwgsim, bcftools, samtools),
-  `genotyping-env` (UGP), `chisel` (Python 2.7).
-- SCAN2 bug fix: replace `$ENV/lib/scan2/snakefile.phasing` with `scripts/snakefile.phasing`.
-- CHISEL needs `Homo_sapiens_assembly38.dict` next to the FASTA (`samtools dict`).
+Under `PROJECT_DIR`: `calls/chisel_pbins<N><suffix>/<phaser>/` (calls) and `eval/<phaser>_chisel_pbins<N><suffix>/` (`summary.txt`, `detection.png`, per-cell plots). Pool detection over trees with `scripts/aggregate_detection.py`; plot a per-cell HMM run with `scripts/plot_cellhmm.py --run <calls folder>`. New sensitivity trees: `scripts/make_sensitivity_tree.py`.
