@@ -4,8 +4,8 @@
 Works on both per-cell HMM runs:
   --cellhmm K     chisel_hmm's CellHMM: <run>/calls/calls.tsv + <run>/calls/cellhmm.tsv
   --bincellhmm K  RunpengLuo/chisel bin_cell_hmm: <run>/calls/calls.tsv + <run>/calls/bincellhmm.npz
-(found automatically from --run). Every point is one cell in one bin: x = RDR, y = BAF = B / (A + B) (phased, not
-mirrored), CLUSTER of calls.tsv = the HMM state.
+(found automatically from --run). Every point is one cell in one bin: x = BAF = B / (A + B) (phased, not
+mirrored), y = RDR; CLUSTER of calls.tsv = the HMM state.
 
 Page 1, overview:
   1. every cell-bin with SNP reads as a 2D histogram; the copy-number grid ((a + b) / ploidy, b / (a + b), grey
@@ -177,17 +177,19 @@ def main():
     fig, ax = plt.subplots(1, 3, figsize=(17, 5.6), gridspec_kw={"width_ratios": [1, 1, 1.05]})
 
     def decorate(axis, ttl):
-        axis.set_xlim(0, rmax)
-        axis.set_ylim(-0.03, 1.03)
-        axis.set_xlabel("RDR")
-        axis.set_ylabel("BAF  (B / (A + B))")
+        axis.set_xlim(-0.03, 1.03)
+        axis.set_ylim(0, rmax)
+        axis.set_xlabel("BAF  (B / (A + B))")
+        axis.set_ylabel("RDR")
         axis.set_title(ttl, loc="left")
         axis.grid(color=GRID, linewidth=0.6)
         axis.set_axisbelow(True)
         for lab, (gx, gy) in gpos.items():
             if gx <= rmax:
-                axis.scatter(gx, gy, s=70, facecolors="none", edgecolors=MUTED, linewidths=0.8, zorder=3)
-                axis.annotate(lab, (gx, gy), xytext=(6, -10), textcoords="offset points", fontsize=7, color=MUTED, zorder=3)
+                axis.scatter(gy, gx, s=70, facecolors="none", edgecolors=MUTED, linewidths=0.8, zorder=3)
+                right = gy > 0.9                            # near BAF 1: label on the left, inside the axes
+                axis.annotate(lab, (gy, gx), xytext=(-6 if right else 6, -10), textcoords="offset points", fontsize=7,
+                              color=MUTED, ha="right" if right else "left", zorder=3)
 
     def means(axis, arrows=False):
         placed = []                                         # stack labels of states that sit close together
@@ -197,18 +199,20 @@ def main():
             c, m = style(k)
             if arrows and st.INIT[k] in gpos:
                 sx, sy = gpos[st.INIT[k]]
-                axis.scatter(sx, sy, s=120, marker=m, facecolors="none", edgecolors=c, linewidths=1.8, zorder=4)
+                axis.scatter(sy, sx, s=120, marker=m, facecolors="none", edgecolors=c, linewidths=1.8, zorder=4)
                 if np.hypot((mx[k] - sx) / rmax, my[k] - sy) > 0.01:
-                    axis.annotate("", xy=(mx[k], my[k]), xytext=(sx, sy), zorder=4,
+                    axis.annotate("", xy=(my[k], mx[k]), xytext=(sy, sx), zorder=4,
                                   arrowprops=dict(arrowstyle="-|>", color=c, lw=1.5, shrinkA=6, shrinkB=7))
-            axis.scatter(mx[k], my[k], s=150, marker=m, color=c, edgecolors="white", linewidths=2, zorder=5)
+            axis.scatter(my[k], mx[k], s=150, marker=m, color=c, edgecolors="white", linewidths=2, zorder=5)
             near = sum(1 for (px, py) in placed if abs(px - mx[k]) / rmax < 0.08 and abs(py - my[k]) < 0.06)
             placed.append((mx[k], my[k]))
-            axis.annotate("{}: {}".format(k, st.CN[k]), (mx[k], my[k]), xytext=(8, 6 + 11 * near), textcoords="offset points",
-                          fontsize=8, color=INK, fontweight="bold", zorder=6)
+            right = my[k] > 0.9
+            axis.annotate("{}: {}".format(k, st.CN[k]), (my[k], mx[k]), xytext=(-8 if right else 8, 6 + 11 * near),
+                          textcoords="offset points", fontsize=8, color=INK, fontweight="bold",
+                          ha="right" if right else "left", zorder=6)
 
     sel = ok & (df.N > 0)
-    h = ax[0].hist2d(df.RDR[sel].clip(upper=rmax), df.BAF[sel], bins=[160, 101], range=[[0, rmax], [0, 1]],
+    h = ax[0].hist2d(df.BAF[sel], df.RDR[sel].clip(upper=rmax), bins=[101, 160], range=[[0, 1], [0, rmax]],
                      cmap=LinearSegmentedColormap.from_list("blues", BLUES), norm=LogNorm(), zorder=1)
     fig.colorbar(h[3], ax=ax[0], pad=0.01, label="cell-bins")
     decorate(ax[0], "Cell-bins ({:,} with SNP reads): start -> fitted mean".format(int(sel.sum())))
@@ -223,7 +227,7 @@ def main():
         t = s[s.state == k]
         if len(t):
             c, m = style(k)
-            ax[1].scatter(t.rdr.clip(upper=rmax), t.baf, s=4 + 2 * np.sqrt(t.bins), marker=m, color=c, alpha=0.35,
+            ax[1].scatter(t.baf, t.rdr.clip(upper=rmax), s=4 + 2 * np.sqrt(t.bins), marker=m, color=c, alpha=0.35,
                           linewidths=0, zorder=2)
     means(ax[1])
 
@@ -234,14 +238,14 @@ def main():
             continue
         c, m = style(k)
         cnt, _ = np.histogram(r, bins=edges)
-        ax[2].step(edges[:-1], cnt, where="post", color=c, linewidth=2 if k < len(HUES) else 1.2,
+        ax[2].plot(np.repeat(cnt, 2), np.repeat(edges, 2)[1:-1], color=c, linewidth=2 if k < len(HUES) else 1.2,
                    linestyle="-" if k < len(HUES) else "--")
         if np.isfinite(mx[k]):
-            ax[2].axvline(mx[k], color=c, linewidth=1, linestyle=":")
-    ax[2].set_yscale("log")
-    ax[2].set_xlim(0, rmax)
-    ax[2].set_xlabel("RDR")
-    ax[2].set_ylabel("cell-bins")
+            ax[2].axhline(mx[k], color=c, linewidth=1, linestyle=":")
+    ax[2].set_xscale("log")
+    ax[2].set_ylim(0, rmax)
+    ax[2].set_ylabel("RDR")
+    ax[2].set_xlabel("cell-bins")
     ax[2].set_title("RDR of the cell-bins of each state (dotted: fitted mean)", loc="left")
     ax[2].grid(color=GRID, linewidth=0.6)
     ax[2].set_axisbelow(True)
